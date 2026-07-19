@@ -132,8 +132,9 @@ f"💰 السعر الحالي: {price}\n"
             )
  else:
  bot.send_message(
-                chat_id,
-f"❌ لم يتم جلب السعر للزوج {pair}"
+chat_id,
+
+    f"❌ لم يتم جلب السعر للزوج {pair}"
 
 print("Bot is running...")
 bot.infinity_polling()
