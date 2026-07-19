@@ -3,7 +3,7 @@ from telebot import types
 import random
 from datetime import datetime
 
-TOKEN = "ضع_توكن_البوت_هنا"
+TOKEN = "8920872994:AAEroNdwptEOqUb1ercwdLqRI1ATlGALNUE"
 
 bot = telebot.TeleBot(TOKEN)
 
