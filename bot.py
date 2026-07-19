@@ -131,7 +131,8 @@ f"💰 السعر الحالي: {price}\n"
  f"⏰ الوقت: {datetime.now().strftime('%H:%M')}"
             )
  else:
- bot.send_message( chat_id,
+ bot.send_message( 
+    chat_id,
 f"❌ لم يتم جلب السعر للزوج {pair}"
 print("Bot is running...")
 bot.infinity_polling()
