@@ -2,7 +2,7 @@ import telebot
 from telebot import types
 import random
 from datetime import datetime
-
+from market import get_price
 TOKEN = "8920872994:AAEroNdwptEOqUb1ercwdLqRI1ATlGALNUE"
 
 bot = telebot.TeleBot(TOKEN)
