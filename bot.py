@@ -30,8 +30,8 @@ signals_ar = [
 ]
 
 signals_en = [
-    "📈 Market update\nPair: {pair}\nDuration: 30 minutes",
-    "📉 Market update\nPair: {pair}\nDuration: 45 minutes"
+    "📈 Market update\nPair: {pair}\nDuration: 30 second",
+    "📉 Market update\nPair: {pair}\nDuration: 45 second"
 ]
 
 
