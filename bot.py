@@ -25,7 +25,7 @@ signals_ar = [
     "EUR/GBP",
     "USD/CHF",
 ]
-]
+
 
 signals_en = [
     "📈 Signal: CALL\nPair: EUR/USD\nDuration: 30 minutes",
