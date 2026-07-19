@@ -10,9 +10,21 @@ bot = telebot.TeleBot(TOKEN)
 user_language = {}
 
 signals_ar = [
-    "📈 إشارة: CALL\nالزوج: EUR/USD\nالمدة: 30 دقيقة",
-    "📉 إشارة: PUT\nالزوج: GBP/USD\nالمدة: 45 دقيقة",
-    "📈 إشارة: CALL\nالزوج: XAU/USD (ذهب)\nالمدة: 30 دقيقة"
+    "📈 إشارة: CALL\nالزوج: EUR/USD\nالمدة: 30 ثانيه",
+    "📉 إشارة: PUT\nالزوج: GBP/USD\nالمدة: 45 ثانيه",
+    "📈 إشارة: CALL\nالزوج: XAU/USD (ذهب)\nالمدة: 30 ثانيه 
+    pairs = [
+    "EUR/USD",
+    "GBP/USD",
+    "USD/JPY",
+    "USD/CAD",
+    "AUD/USD",
+    "NZD/USD",
+    "EUR/JPY",
+    "GBP/JPY",
+    "EUR/GBP",
+    "USD/CHF",
+]
 ]
 
 signals_en = [
