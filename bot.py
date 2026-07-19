@@ -119,25 +119,21 @@ def callback(call):
             chat_id,
             f"تم اختيار الزوج ✅\n{pair}"
         )
-                main_menu(chat_id)
-
-    elif call.data == "signal":
-
-        pair = user_pair.get(chat_id, "EUR/USD")
-
-        price = get_price(pair)
-
-        if price:
-            bot.send_message(
-                chat_id,
-                f"💱 الزوج: {pair}\n"
-                f"💰 السعر الحالي: {price}\n"
-                f"⏰ الوقت: {datetime.now().strftime('%H:%M')}"
+main_menu(chat_id)
+ elif call.data == "signal":
+pair = user_pair.get(chat_id, "EUR/USD")
+price = get_price(pair)
+if price:
+ bot.send_message(
+     chat_id,
+f"💱 الزوج: {pair}\n"
+f"💰 السعر الحالي: {price}\n"
+ f"⏰ الوقت: {datetime.now().strftime('%H:%M')}"
             )
-        else:
-            bot.send_message(
+ else:
+ bot.send_message(
                 chat_id,
-                f"❌ لم يتم جلب السعر للزوج {pair}"
+ f"❌ لم يتم جلب السعر للزوج {pair}"
             )
 
 print("Bot is running...")
