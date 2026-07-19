@@ -121,7 +121,7 @@ def callback(call):
         )
 
         main_menu(chat_id)
-    elif call.data=="signal":
+ elif call.data=="signal":
 
      pair = user_pair.get(chat_id, "EUR/USD")
 
