@@ -120,7 +120,8 @@ def callback(call):
             f"تم اختيار الزوج ✅\n{pair}"
         )
 
-        main_menu(chat_id)  elif call.data=="signal":
+        main_menu(chat_id)
+    elif call.data=="signal":
 
      pair = user_pair.get(chat_id, "EUR/USD")
 
