@@ -1,6 +1,7 @@
 import telebot
 from telebot import types
 import random
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from market import get_price
 TOKEN = "8920872994:AAG0t2VC48sfLIBznsjn9OUEV6A5VpKgnlc"
@@ -131,7 +132,7 @@ def callback(call):
                 chat_id,
                 f"💱 الزوج: {pair}\n"
                 f"💰 السعر الحالي: {price}\n"
-                f"⏰ الوقت: datetime.now(ZoneInfo("Asia/Riyadh")).strftime("%H:%M")
+                f"⏰ الوقت: f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
             )
         else:
             bot.send_message(
