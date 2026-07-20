@@ -109,9 +109,8 @@ def callback(call):
             "اختر الزوج:",
             reply_markup=keyboard
         )
-
-
-elif call.data.startswith("pair_"):
+elif 
+call.data.startswith("pair_"):
 
 pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
