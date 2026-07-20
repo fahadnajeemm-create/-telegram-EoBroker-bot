@@ -29,19 +29,18 @@ signals_en = [
     "📉 Market update\nPair: {pair}\nDuration: 45 second"]
 @bot.message_handler(commands=['start'])
 def start(message):
- keyboard = types.InlineKeyboardMarkup()
+keyboard = types.InlineKeyboardMarkup()
 keyboard.add(
 types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
 types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
- bot.send_message(
- message.chat.id,   "اختر اللغة / Choose language:",
- reply_markup=keyboard)
+bot.send_message(
+message.chat.id,   "اختر اللغة / Choose language:",
+reply_markup=keyboard)
 def main_menu(chat_id):
-keyboard = types.InlineKeyboardMarkup()
-keyboard.add(
+keyboard = types.InlineKeyboardMarkup() keyboard.add(
 types.InlineKeyboardButton("📊 الحصول على إشارة",
 callback_data="signal"))
- keyboard.add(
+keyboard.add(
 types.InlineKeyboardButton( "💱 اختيار الزوج",
 callback_data="pairs"))
 bot.send_message( chat_id, "اختر من القائمة:",
