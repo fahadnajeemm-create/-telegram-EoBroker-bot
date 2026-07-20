@@ -1,8 +1,8 @@
 import requests
 import pandas as pd
 import pandas_ta as ta
-from config import 
-TWELVE_API = "cd927853f89c420380e0dcb9cecf2846"
+from config import TWELVE_API = 
+"cd927853f89c420380e0dcb9cecf2846"
 def get_price(pair):
     try:
         url = (
