@@ -136,11 +136,11 @@ def callback(call):
                 elif price < old_price:
                     signal = "🔴 بيع (PUT)"
                 else:
-                    signal = "⏸ انتظار"
-                    if price:
-    signal = "✅ تم جلب السعر"
+ signal = "⏸ انتظار"
+if price:
+signal = "✅ تم جلب السعر"
 else:
-    signal = "⏳ جمع البيانات..."
+ signal = "⏳ جمع البيانات..."
 
      last_prices[pair] = price
 
