@@ -5,9 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from market import get_price
 TOKEN = "8920872994:AAG0t2VC48sfLIBznsjn9OUEV6A5VpKgnlc"
-
 bot = telebot.TeleBot(TOKEN)
-
 user_language = {}
 user_pair = {}
 last_prices = {}
@@ -22,9 +20,7 @@ pairs = [
     "GBP/JPY",
     "EUR/GBP",
     "USD/CHF",
-    "XAU/USD",
-]
-
+    "XAU/USD",]
 signals_ar = [
     "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
     "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية"]
@@ -63,7 +59,7 @@ bot.send_message(chat_id, "English selected ✅")
 main_menu(chat_id)
 elif call.data == "pairs":
 keyboard = types.InlineKeyboardMarkup()
- for pair in pairs:
+for pair in pairs:
 keyboard.add( types.InlineKeyboardButton( pair,
 callback_data=f"pair_{pair}"))
 bot.send_message(
@@ -86,15 +82,13 @@ signal = "🟢 شراء (CALL)"
 elif price < old_price:
 signal = "🔴 بيع (PUT)"
 else:
- signal = "⏸ انتظار"
+signal = "⏸ انتظار"
 if price:
 signal = "✅ تم جلب السعر"
 else:
- signal = "⏳ جمع البيانات..."
-
-     last_prices[pair] = price
-
-            bot.send_message(
+signal = "⏳ جمع البيانات..."
+last_prices[pair] = price
+  bot.send_message(
                 chat_id,
                 f"💱 الزوج: {pair}\n"
                 f"💰 السعر الحالي: {price}\n"
