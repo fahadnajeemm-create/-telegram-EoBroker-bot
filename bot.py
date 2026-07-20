@@ -64,8 +64,7 @@ main_menu(chat_id)
 elif call.data == "pairs":
 keyboard = types.InlineKeyboardMarkup()
  for pair in pairs:
-keyboard.add( types.InlineKeyboardButton(
-         pair,
+keyboard.add( types.InlineKeyboardButton( pair,
 callback_data=f"pair_{pair}"))
 bot.send_message(
  chat_id,    "اختر الزوج:",
@@ -75,14 +74,14 @@ pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
 bot.send_message(
     chat_id,f"تم اختيار الزوج ✅\n{pair}")
- main_menu(chat_id)
- elif call.data == "signal":
+main_menu(chat_id)
+elif call.data == "signal":
 pair = user_pair.get(chat_id, "EUR/USD")
 price = get_price(pair)
- if price:
+if price:
 old_price = last_prices.get(pair)
 if old_price:
- if price > old_price:
+if price > old_price:
 signal = "🟢 شراء (CALL)"
 elif price < old_price:
 signal = "🔴 بيع (PUT)"
