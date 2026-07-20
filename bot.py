@@ -137,10 +137,9 @@ def callback(call):
                     signal = "🔴 بيع (PUT)"
                 else:
                     signal = "⏸ انتظار"
-else:
-signal = "⏳ جمع البيانات..."
+else: signal = "⏳ جمع البيانات..."
 
-            last_prices[pair] = price
+     last_prices[pair] = price
 
             bot.send_message(
                 chat_id,
