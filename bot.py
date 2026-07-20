@@ -75,34 +75,30 @@ def main_menu(chat_id):
         reply_markup=keyboard
     )
 
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
 
-    chat_id = call.message.chat.id
+chat_id = call.message.chat.id
 
-    if call.data in ["ar", "en"]:
-        user_language[chat_id] = call.data
+if call.data in ["ar", "en"]:
+    user_language[chat_id] = call.data
 
-        if call.data == "ar":
-            bot.send_message(chat_id, "تم اختيار العربية ✅")
-        else:
-            bot.send_message(chat_id, "English selected ✅")
+if call.data == "ar":
+bot.send_message(chat_id, "تم اختيار العربية ✅")
+ else:
+    bot.send_message(chat_id, "English selected ✅")
 
-        main_menu(chat_id)
-
+main_menu(chat_id)
 
 elif call.data == "pairs":
 
 keyboard = types.InlineKeyboardMarkup()
-
  for pair in pairs:
-keyboard.add(
- types.InlineKeyboardButton(
-             pair,
- callback_data=f"pair_{pair}"))
+keyboard.add( types.InlineKeyboardButton(
+         pair,
+callback_data=f"pair_{pair}"))
 bot.send_message(
-            chat_id,    "اختر الزوج:",
+ chat_id,    "اختر الزوج:",
 reply_markup=keyboard ) 
 elif call.data.startswith("pair_"):
 pair = call.data.replace("pair_", "")
