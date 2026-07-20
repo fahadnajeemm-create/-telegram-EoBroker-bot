@@ -1,45 +1,42 @@
 import requests
-from config import ALPHA_API
 
-def get_forex(base, quote):
+API_KEY = "B3ZU4ZS44965VIYO"
 
-    url = (
-        "https://www.alphavantage.co/query"
-        f"?function=FX_INTRADAY"
-        f"&from_symbol={base}"
-        f"&to_symbol={quote}"
-        f"&interval=1min"
-        f"&outputsize=compact"
-        f"&apikey={ALPHA_API}"
-    )
+def get_price(pair):
+    try:
+        pair = pair.replace(" (ذهب)", "")
 
-    data = requests.get(url, timeout=20).json()
+        # الذهب
+        if pair == "XAU/USD":
+            url = (
+                f"https://www.alphavantage.co/query"
+                f"?function=CURRENCY_EXCHANGE_RATE"
+                f"&from_currency=XAU"
+                f"&to_currency=USD"
+                f"&apikey={API_KEY}"
+            )
+        else:
+            base, quote = pair.split("/")
 
-    key = "Time Series FX (1min)"
+            url = (
+                f"https://www.alphavantage.co/query"
+                f"?function=CURRENCY_EXCHANGE_RATE"
+                f"&from_currency={base}"
+                f"&to_currency={quote}"
+                f"&apikey={API_KEY}"
+            )
 
-    if key not in data:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        if "Realtime Currency Exchange Rate" not in data:
+            print(data)
+            return None
+
+        price = data["Realtime Currency Exchange Rate"]["5. Exchange Rate"]
+
+        return round(float(price), 5)
+
+    except Exception as e:
+        print("Market Error:", e)
         return None
-
-    candles = []
-
-    for t in data[key]:
-
-        c = data[key][t]
-
-        candles.append({
-
-            "time": t,
-
-            "open": float(c["1. open"]),
-
-            "high": float(c["2. high"]),
-
-            "low": float(c["3. low"]),
-
-            "close": float(c["4. close"])
-
-        })
-
-    candles.reverse()
-
-    return candles
