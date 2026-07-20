@@ -69,8 +69,6 @@ def get_market_data(pair):
     except Exception as e:
         print(e)
         return None
-
-
 def get_signal(pair):
     df = get_market_data(pair)
 
@@ -79,24 +77,37 @@ def get_signal(pair):
 
     last = df.iloc[-1]
 
-    if (
-        last["EMA20"] > last["EMA50"]
-        and last["MACD_12_26_9"] > last["MACDs_12_26_9"]
-        and last["RSI"] < 70
-    ):
-        return "📈 شراء 🟢"
+    buy_score = 0
+    sell_score = 0
 
-    elif (
-        last["EMA20"] < last["EMA50"]
-        and last["MACD_12_26_9"] < last["MACDs_12_26_9"]
-        and last["RSI"] > 30
-    ):
-        return "📉 بيع 🔴"
-
+    # EMA
+    if last["EMA20"] > last["EMA50"]:
+        buy_score += 1
     else:
-        return "⏳ انتظار تأكيد"
+        sell_score += 1
 
+    # MACD
+    if last["MACD_12_26_9"] > last["MACDs_12_26_9"]:
+        buy_score += 1
+    else:
+        sell_score += 1
 
+    # RSI
+    if last["RSI"] < 30:
+        buy_score += 1
+    elif last["RSI"] > 70:
+        sell_score += 1
+
+    # الشمعة الحالية
+    if last["close"] > last["open"]:
+        buy_score += 1
+    elif last["close"] < last["open"]:
+        sell_score += 1
+
+    if buy_score >= sell_score:
+        return "📈 شراء 🟢"
+    else:
+        return "📉 بيع 🔴"
 def get_signal_strength(pair):
     df = get_market_data(pair)
 
@@ -107,16 +118,17 @@ def get_signal_strength(pair):
 
     score = 0
 
-    if last["EMA20"] > last["EMA50"]:
-        score += 30
+    if last["EMA20"] > last["EMA50"] or last["EMA20"] < last["EMA50"]:
+        score += 25
 
-    if last["MACD_12_26_9"] > last["MACDs_12_26_9"]:
-        score += 30
+    if last["MACD_12_26_9"] > last["MACDs_12_26_9"] or last["MACD_12_26_9"] < last["MACDs_12_26_9"]:
+        score += 25
 
-    if 30 < last["RSI"] < 70:
-        score += 20
+    if last["close"] > last["open"] or last["close"] < last["open"]:
+        score += 25
 
-    if last["close"] != last["open"]:
-        score += 20
+    if last["RSI"] < 30 or last["RSI"] > 70:
+        score += 25
 
     return f"{score}%"
+
