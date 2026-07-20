@@ -72,11 +72,8 @@ def get_market_data(pair):
 
 
 def get_signal(pair):
-
-    df = get_market_data(pair)
-
-    if df is None:
-        return "⏳ جمع البيانات..."
+df = get_market_data(pair)
+if df is None: return "⏳ جمع البيانات..."
 
     last = df.iloc[-1]
 
