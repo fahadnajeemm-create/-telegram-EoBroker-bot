@@ -103,16 +103,16 @@ def get_signal_strength(pair):
 
     score = 0
 
-    if last["EMA20"] > last["EMA50"]:
+ if last["EMA20"] > last["EMA50"]:
         score += 30
 
-    if last["MACD_12_26_9"] > last["MACDs_12_26_9"]:
+if last["MACD_12_26_9"] > last["MACDs_12_26_9"]:
         score += 30
 
-    if 30 < last["RSI"] < 70:
+if 30 < last["RSI"] < 70:
         score += 20
 
-    if last["close"] != last["open"]:
+if last["close"] != last["open"]:
         score += 20
 
-    return f"{score}%"
+return f"{score}%"
