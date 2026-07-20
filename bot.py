@@ -21,9 +21,7 @@ pairs = [
     "GBP/JPY",
     "EUR/GBP",
     "USD/CHF",
-    "XAU/USD",
-]
-
+    "XAU/USD",]
 signals_ar = [
     "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
     "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية",
