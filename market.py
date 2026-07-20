@@ -4,6 +4,9 @@ import pandas_ta as ta
 from config import TWELVE_API
 
 
+# =========================
+# جلب السعر الحالي
+# =========================
 def get_price(pair):
     try:
         pair = pair.replace(" (ذهب)", "")
@@ -14,8 +17,7 @@ def get_price(pair):
             f"&apikey={TWELVE_API}"
         )
 
-        response = requests.get(url, timeout=10)
-        data = response.json()
+        data = requests.get(url, timeout=10).json()
 
         if "price" in data:
             return round(float(data["price"]), 5)
@@ -27,6 +29,9 @@ def get_price(pair):
         return None
 
 
+# =========================
+# جلب البيانات
+# =========================
 def get_market_data(pair):
     try:
         pair = pair.replace(" (ذهب)", "")
@@ -35,12 +40,11 @@ def get_market_data(pair):
             f"https://api.twelvedata.com/time_series"
             f"?symbol={pair}"
             f"&interval=1min"
-            f"&outputsize=100"
+            f"&outputsize=250"
             f"&apikey={TWELVE_API}"
         )
 
-        response = requests.get(url, timeout=10)
-        data = response.json()
+        data = requests.get(url, timeout=10).json()
 
         if "values" not in data:
             print(data)
@@ -57,78 +61,195 @@ def get_market_data(pair):
 
         df = df.iloc[::-1].reset_index(drop=True)
 
+        # EMA
         df["EMA20"] = ta.ema(df["close"], length=20)
         df["EMA50"] = ta.ema(df["close"], length=50)
+        df["EMA200"] = ta.ema(df["close"], length=200)
+
+        # RSI
         df["RSI"] = ta.rsi(df["close"], length=14)
 
+        # MACD
         macd = ta.macd(df["close"])
         df = pd.concat([df, macd], axis=1)
+
+        # ADX
+        adx = ta.adx(df["high"], df["low"], df["close"])
+        df = pd.concat([df, adx], axis=1)
+
+        # ATR
+        df["ATR"] = ta.atr(
+            df["high"],
+            df["low"],
+            df["close"],
+            length=14
+        )
+
+        # Bollinger
+        bb = ta.bbands(df["close"], length=20)
+        df = pd.concat([df, bb], axis=1)
 
         return df
 
     except Exception as e:
         print(e)
         return None
-def get_signal(pair):
+
+
+# =========================
+# تحليل الشموع
+# =========================
+def bullish_engulfing(df):
+
+    if len(df) < 2:
+        return False
+
+    prev = df.iloc[-2]
+    last = df.iloc[-1]
+
+    return (
+        prev["close"] < prev["open"]
+        and last["close"] > last["open"]
+        and last["close"] > prev["open"]
+        and last["open"] < prev["close"]
+    )
+
+
+def bearish_engulfing(df):
+
+    if len(df) < 2:
+        return False
+
+    prev = df.iloc[-2]
+    last = df.iloc[-1]
+
+    return (
+        prev["close"] > prev["open"]
+        and last["close"] < last["open"]
+        and last["open"] > prev["close"]
+        and last["close"] < prev["open"]
+    )
+
+
+# =========================
+# التحليل
+# =========================
+def analyze_market(pair):
+
     df = get_market_data(pair)
 
     if df is None:
-        return "⏳ جمع البيانات..."
+        return None
 
     last = df.iloc[-1]
 
-    buy_score = 0
-    sell_score = 0
+    buy = 0
+    sell = 0
+    indicators = []
 
     # EMA
-    if last["EMA20"] > last["EMA50"]:
-        buy_score += 1
-    else:
-        sell_score += 1
+    if last["EMA20"] > last["EMA50"] > last["EMA200"]:
+        buy += 20
+        indicators.append("✅ EMA")
+
+    elif last["EMA20"] < last["EMA50"] < last["EMA200"]:
+        sell += 20
+        indicators.append("✅ EMA")
 
     # MACD
     if last["MACD_12_26_9"] > last["MACDs_12_26_9"]:
-        buy_score += 1
+        buy += 20
+        indicators.append("✅ MACD")
     else:
-        sell_score += 1
+        sell += 20
+        indicators.append("✅ MACD")
 
     # RSI
-    if last["RSI"] < 30:
-        buy_score += 1
+    if 45 <= last["RSI"] <= 65:
+        buy += 10
+        indicators.append("✅ RSI")
+
     elif last["RSI"] > 70:
-        sell_score += 1
+        sell += 10
+        indicators.append("✅ RSI")
 
-    # الشمعة الحالية
-    if last["close"] > last["open"]:
-        buy_score += 1
-    elif last["close"] < last["open"]:
-        sell_score += 1
+    elif last["RSI"] < 30:
+        buy += 10
+        indicators.append("✅ RSI")
 
-    if buy_score >= sell_score:
-        return "📈 شراء 🟢"
+    # ADX
+    if last["ADX_14"] > 25:
+        buy += 15
+        sell += 15
+        indicators.append("✅ ADX")
+
+    # Bollinger
+    if last["close"] > last["BBM_20_2.0"]:
+        buy += 10
+        indicators.append("✅ Bollinger")
+
     else:
-        return "📉 بيع 🔴"
+        sell += 10
+        indicators.append("✅ Bollinger")
+
+    # ATR
+    if last["ATR"] > 0:
+        buy += 5
+        sell += 5
+        indicators.append("✅ ATR")
+
+    # Candlestick
+    if bullish_engulfing(df):
+        buy += 20
+        indicators.append("✅ Bullish Engulfing")
+
+    if bearish_engulfing(df):
+        sell += 20
+        indicators.append("✅ Bearish Engulfing")
+
+    if buy >= sell:
+        signal = "📈 شراء 🟢"
+        confidence = buy
+        trend = "صاعد قوي ⬆️"
+    else:
+        signal = "📉 بيع 🔴"
+        confidence = sell
+        trend = "هابط قوي ⬇️"
+
+    duration = "30 ثانية" if confidence >= 90 else "45 ثانية"
+
+    return {
+        "signal": signal,
+        "confidence": min(confidence, 100),
+        "trend": trend,
+        "duration": duration,
+        "indicators": indicators
+    }
+
+
+# =========================
+# دوال البوت
+# =========================
+def get_signal(pair):
+    result = analyze_market(pair)
+    return result["signal"] if result else "❌"
+
+
 def get_signal_strength(pair):
-    df = get_market_data(pair)
+    result = analyze_market(pair)
+    return f'{result["confidence"]}%' if result else "0%"
 
-    if df is None:
-        return "0%"
 
-    last = df.iloc[-1]
+def get_trade_time(pair):
+    result = analyze_market(pair)
+    return result["duration"] if result else "30 ثانية"
 
-    score = 0
 
-    if last["EMA20"] > last["EMA50"] or last["EMA20"] < last["EMA50"]:
-        score += 25
+def get_trend(pair):
+    result = analyze_market(pair)
+    return result["trend"] if result else "-"
 
-    if last["MACD_12_26_9"] > last["MACDs_12_26_9"] or last["MACD_12_26_9"] < last["MACDs_12_26_9"]:
-        score += 25
 
-    if last["close"] > last["open"] or last["close"] < last["open"]:
-        score += 25
-
-    if last["RSI"] < 30 or last["RSI"] > 70:
-        score += 25
-
-    return f"{score}%"
-
+def get_indicators(pair):
+    result = analyze_market(pair)
+    return "\n".join(result["indicators"]) if result else "-"
