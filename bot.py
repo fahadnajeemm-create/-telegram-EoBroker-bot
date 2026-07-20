@@ -29,7 +29,8 @@ signals_en = [
     "📉 Market update\nPair: {pair}\nDuration: 45 second"]
 @bot.message_handler(commands=['start']) 
 def start(message):
-keyboard = types.InlineKeyboardMarkup()keyboard.add(
+keyboard = types.InlineKeyboardMarkup()
+keyboard.add(
 types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
 types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
 bot.send_message(message.chat.id,"اختر اللغة / Choose language:",
@@ -91,6 +92,6 @@ f"💰 السعر الحالي: {price}\n"
  f"⏱ مدة الصفقة: 30 ثانية\n"
     f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"  )
 else:
-bot.send_message(chat_id,f"❌ لم يتم جلب السعر للزوج {pair}"
+bot.send_message(chat_id,f"❌ لم يتم جلب السعر للزوج {pair}"(
 print("Bot is running...")
 bot.infinity_polling()
