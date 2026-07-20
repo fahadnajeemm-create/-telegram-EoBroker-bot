@@ -74,19 +74,13 @@ elif call.data.startswith("pair_"):
 pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
 bot.send_message(
-    chat_id,
-    f"تم اختيار الزوج ✅\n{pair}"
- )
+    chat_id,f"تم اختيار الزوج ✅\n{pair}")
  main_menu(chat_id)
  elif call.data == "signal":
-
 pair = user_pair.get(chat_id, "EUR/USD")
 price = get_price(pair)
-
  if price:
-
 old_price = last_prices.get(pair)
-
 if old_price:
  if price > old_price:
 signal = "🟢 شراء (CALL)"
