@@ -49,9 +49,9 @@ elif sell >= 2:
             signal = "🔴 بيع"
             duration = 45 if sell == 3 else 30
  return { 
-     "price": round(last["close"], 5),
-    "signal": signal,
-    "duration": duration,}
+"price": round(last["close"], 5),
+"signal": signal,
+"duration": duration,}
 except Exception as e:
-        print("Market Error:", e)
-        return None
+print("Market Error:", e)
+ return None
