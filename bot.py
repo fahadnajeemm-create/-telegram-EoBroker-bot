@@ -92,18 +92,15 @@ def callback(call):
         main_menu(chat_id)
 
 
-    elif call.data == "pairs":
+elif call.data == "pairs":
 
-        keyboard = types.InlineKeyboardMarkup()
+keyboard = types.InlineKeyboardMarkup()
 
-        for pair in pairs:
-            keyboard.add(
-                types.InlineKeyboardButton(
-                    pair,
-                    callback_data=f"pair_{pair}"
-                )
-            )
-
+ for pair in pairs:
+keyboard.add(
+ types.InlineKeyboardButton(
+             pair,
+ callback_data=f"pair_{pair}"))
 bot.send_message(
             chat_id,    "اختر الزوج:",
 reply_markup=keyboard ) 
