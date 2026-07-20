@@ -2,7 +2,7 @@ import telebot
 from telebot import types
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from market import get_price
+from market import get_price, get_candles
 
 TOKEN = "8920872994:AAG0t2VC48sfLIBznsjn9OUEV6A5VpKgnlc"
 
@@ -112,26 +112,48 @@ def callback(call):
         )
 
         main_menu(chat_id)
+elif call.data == "signal":
+    pair = user_pair.get(chat_id, "EUR/USD")
 
-    elif call.data == "signal":
-        pair = user_pair.get(chat_id, "EUR/USD")
-        price = get_price(pair)
+    price = get_price(pair)
+    candles = get_candles(pair)
 
-        if price is not None:
-            old_price = last_prices.get(pair)
+    if price is not None and candles:
 
-            if old_price is None:
-                signal = "⏳ جمع البيانات..."
-            else:
-                if price > old_price:
-                    signal = "🟢 شراء (CALL)"
-                elif price < old_price:
-                    signal = "🔴 بيع (PUT)"
-                else:
-                    signal = "⏸ انتظار"
+        closes = []
 
-            last_prices[pair] = price
+        for candle in candles:
+            closes.append(float(candle["close"]))
 
+        last_close = closes[0]
+        previous_close = closes[1]
+
+        if last_close > previous_close:
+            signal = "🟢 شراء (CALL)"
+            duration = "30 ثانية"
+
+        elif last_close < previous_close:
+            signal = "🔴 بيع (PUT)"
+            duration = "45 ثانية"
+
+        else:
+            signal = "⏸ انتظار"
+            duration = "30 ثانية"
+
+        bot.send_message(
+            chat_id,
+            f"💱 الزوج: {pair}\n"
+            f"💰 السعر الحالي: {price}\n"
+            f"📊 الإشارة: {signal}\n"
+            f"⏱ مدة الصفقة: {duration}\n"
+            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}",
+        )
+
+    else:
+        bot.send_message(
+            chat_id,
+            "❌ لا توجد بيانات كافية للتحليل"
+        )
             bot.send_message(
                 chat_id,
                 f"💱 الزوج: {pair}\n"
