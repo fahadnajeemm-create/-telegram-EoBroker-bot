@@ -27,56 +27,41 @@ pairs = [
 
 signals_ar = [
     "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
-    "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية"
-]
-
+    "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية"]
 signals_en = [
     "📈 Market update\nPair: {pair}\nDuration: 30 second",
-    "📉 Market update\nPair: {pair}\nDuration: 45 second"
-]
-
-
+    "📉 Market update\nPair: {pair}\nDuration: 45 second"]
 @bot.message_handler(commands=['start'])
 def start(message):
-    keyboard = types.InlineKeyboardMarkup()
-
-    keyboard.add(
-        types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
-        types.InlineKeyboardButton("English 🇬🇧", callback_data="en")
-    )
+ keyboard = types.InlineKeyboardMarkup()
+keyboard.add(
+types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
+types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
  bot.send_message(
  message.chat.id,   "اختر اللغة / Choose language:",
  reply_markup=keyboard)
 def main_menu(chat_id):
-    keyboard = types.InlineKeyboardMarkup()
+keyboard = types.InlineKeyboardMarkup()
  keyboard.add(
-types.InlineKeyboardButton(
-"📊 الحصول على إشارة",
+types.InlineKeyboardButton("📊 الحصول على إشارة",
 callback_data="signal"))
  keyboard.add(
-types.InlineKeyboardButton(
-            "💱 اختيار الزوج",
+types.InlineKeyboardButton( "💱 اختيار الزوج",
 callback_data="pairs"))
 bot.send_message(
         chat_id,      "اختر من القائمة:",
 reply_markup=keyboard)
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
-
 chat_id = call.message.chat.id
-
 if call.data in ["ar", "en"]:
-    user_language[chat_id] = call.data
-
+user_language[chat_id] = call.data
 if call.data == "ar":
 bot.send_message(chat_id, "تم اختيار العربية ✅")
  else:
-    bot.send_message(chat_id, "English selected ✅")
-
+bot.send_message(chat_id, "English selected ✅")
 main_menu(chat_id)
-
 elif call.data == "pairs":
-
 keyboard = types.InlineKeyboardMarkup()
  for pair in pairs:
 keyboard.add( types.InlineKeyboardButton(
