@@ -1,20 +1,42 @@
 import requests
 
+API_KEY = "B3ZU4ZS44965VIYO"
+
 def get_price(pair):
     try:
-        # تحويل اسم الزوج إلى تنسيق مزود البيانات
-        symbol = pair.replace("/", "")
+        pair = pair.replace(" (ذهب)", "")
 
-        # مثال باستخدام مصدر مجاني
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}=X"
+        # الذهب
+        if pair == "XAU/USD":
+            url = (
+                f"https://www.alphavantage.co/query"
+                f"?function=CURRENCY_EXCHANGE_RATE"
+                f"&from_currency=XAU"
+                f"&to_currency=USD"
+                f"&apikey={API_KEY}"
+            )
+        else:
+            base, quote = pair.split("/")
+
+            url = (
+                f"https://www.alphavantage.co/query"
+                f"?function=CURRENCY_EXCHANGE_RATE"
+                f"&from_currency={base}"
+                f"&to_currency={quote}"
+                f"&apikey={API_KEY}"
+            )
 
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        result = data["chart"]["result"][0]
-        price = result["meta"]["regularMarketPrice"]
+        if "Realtime Currency Exchange Rate" not in data:
+            print(data)
+            return None
 
-        return round(price, 5)
+        price = data["Realtime Currency Exchange Rate"]["5. Exchange Rate"]
 
-    except Exception:
+        return round(float(price), 5)
+
+    except Exception as e:
+        print("Market Error:", e)
         return None
