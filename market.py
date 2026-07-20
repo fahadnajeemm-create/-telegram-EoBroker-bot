@@ -4,9 +4,7 @@ import pandas_ta as ta
 import logging
 from datetime import datetime
 from config import TWELVE_API
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 def get_price(pair):
     try:
         pair = pair.replace(" (ذهب)", "")
@@ -21,7 +19,6 @@ def get_price(pair):
     except Exception as e:
         logging.error(f"Error in get_price: {e}")
         return None
-
 def get_market_data(pair):
     try:
         pair = pair.replace(" (ذهب)", "")
@@ -49,7 +46,18 @@ def get_market_data(pair):
     except Exception as e:
         logging.error(f"Error in get_market_data: {e}")
         return None
-
+def bullish_engulfing(df):
+    if len(df) < 2:
+        return False
+    prev = df.iloc[-2]
+    last = df.iloc[-1]
+    return (prev["close"] < prev["open"] and last["close"] > last["open"] and last["close"] > prev["open"] and last["open"] < prev["close"])
+def bearish_engulfing(df):
+    if len(df) < 2:
+        return False
+    prev = df.iloc[-2]
+    last = df.iloc[-1]
+    return (prev["close"] > prev["open"] and last["close"] < last["open"] and last["open"] > prev["close"] and last["close"] < prev["open"])
 def analyze_market(pair):
     df = get_market_data(pair)
     if df is None:
@@ -93,6 +101,12 @@ def analyze_market(pair):
         buy += 5
         sell += 5
         indicators.append("✅ ATR")
+    if bullish_engulfing(df):
+        buy += 20
+        indicators.append("✅ Bullish Engulfing")
+    if bearish_engulfing(df):
+        sell += 20
+        indicators.append("✅ Bearish Engulfing")
     if buy >= sell:
         signal = "📈 شراء 🟢"
         confidence = buy
@@ -109,23 +123,18 @@ def analyze_market(pair):
         "duration": duration,
         "indicators": indicators
     }
-
 def get_signal(pair):
     result = analyze_market(pair)
     return result["signal"] if result else "❌"
-
 def get_signal_strength(pair):
     result = analyze_market(pair)
     return f'{result["confidence"]}%' if result else "0%"
-
 def get_trade_time(pair):
     result = analyze_market(pair)
     return result["duration"] if result else "30 ثانية"
-
 def get_trend(pair):
     result = analyze_market(pair)
     return result["trend"] if result else "-"
-
 def get_indicators(pair):
     result = analyze_market(pair)
     return "\n".join(result["indicators"]) if result else "-"
