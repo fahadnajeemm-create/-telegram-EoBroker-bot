@@ -107,9 +107,8 @@ def callback(call):
         bot.send_message(
             chat_id,
             "اختر الزوج:",
-            reply_markup=keyboard )
-    elif call.data.startswith("pair_"):
-
+ reply_markup=keyboard )
+elif call.data.startswith("pair_"):
 pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
 
