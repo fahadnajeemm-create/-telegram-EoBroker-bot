@@ -27,7 +27,7 @@ signals_ar = [
 signals_en = [
     "📈 Market update\nPair: {pair}\nDuration: 30 second",
     "📉 Market update\nPair: {pair}\nDuration: 45 second"]
-@bot.message_handler(commands=['start'])def start(message):
+@bot.message_handler(commands=['start']) def start(message):
 keyboard = types.InlineKeyboardMarkup()keyboard.add(
 types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
 types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
