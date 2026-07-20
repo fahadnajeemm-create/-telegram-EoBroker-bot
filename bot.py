@@ -121,12 +121,15 @@ def callback(call):
             old_price = last_prices.get(pair)
 
             if old_price is None:
-                signal = "⏳ جمع البيانات..."
-            else:
-                if price > old_price:
-                    signal = "🟢 شراء (CALL)"
-                elif price < old_price:
-                    signal = "🔴 بيع (PUT)"
+    signal = "🟢 شراء (CALL)"
+    duration = "30 ثانية"
+else:
+    if price > old_price:
+        signal = "🟢 شراء (CALL)"
+        duration = "30 ثانية"
+    else:
+        signal = "🔴 بيع (PUT)"
+        duration = "45 ثانية"
                 else:
                     signal = "⏸ انتظار"
 
