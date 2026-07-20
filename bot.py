@@ -23,16 +23,12 @@ pairs = [
     "USD/CHF",
     "XAU/USD",]
 signals_ar = [
-    "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
-    "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية",
-]
+ "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
+ "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية",]
 
 signals_en = [
     "📈 Market update\nPair: {pair}\nDuration: 30 second",
-    "📉 Market update\nPair: {pair}\nDuration: 45 second",
-]
-
-
+    "📉 Market update\nPair: {pair}\nDuration: 45 second",]
 @bot.message_handler(commands=["start"])
 def start(message):
     keyboard = types.InlineKeyboardMarkup()
@@ -46,12 +42,18 @@ def start(message):
         "اختر اللغة / Choose language:",
         reply_markup=keyboard,
     )
-if check_subscription(message.chat.id):
-    bot.send_message(
-        message.chat.id,
-        f"✅ اشتراكك فعال\n"
-        f"الأيام المتبقية: {days_left(message.chat.id)}"
-    )
+
+    if check_subscription(message.chat.id):
+        bot.send_message(
+            message.chat.id,
+            f"✅ اشتراكك فعال\n"
+            f"الأيام المتبقية: {days_left(message.chat.id)}"
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "❌ لا يوجد لديك اشتراك."
+        )
 else:
     bot.send_message(
         message.chat.id,
