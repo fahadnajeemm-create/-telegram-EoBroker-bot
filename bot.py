@@ -54,14 +54,15 @@ bot.send_message(chat_id, "تم اختيار العربية ✅")
  else:
 bot.send_message(chat_id, "English selected ✅")
 main_menu(chat_id)
-elif call.data == "pairs":
+elif 
+call.data == "pairs":
 keyboard = types.InlineKeyboardMarkup()
 for pair in pairs:
 keyboard.add( types.InlineKeyboardButton( pair,
 callback_data=f"pair_{pair}"))
-bot.send_message(chat_id,"اختر الزوج:",
-reply_markup=keyboard ) 
-elif call.data.startswith("pair_"):
+bot.send_message(chat_id,"اختر الزوج:", reply_markup=keyboard ) 
+elif 
+call.data.startswith("pair_"):
 pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
 bot.send_message(chat_id, f"تم اختيار الزوج ✅\n{pair}")
