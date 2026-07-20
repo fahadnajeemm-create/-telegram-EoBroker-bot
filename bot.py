@@ -7,11 +7,9 @@ from database import ( add_subscription,remove_subscription,check_subscription,d
 TOKEN = "8920872994:AAG0t2VC48sfLIBznsjn9OUEV6A5VpKgnlc"
 ADMIN_ID = 1228195080
 bot = telebot.TeleBot(TOKEN)
-
 user_language = {}
 user_pair = {}
 last_prices = {}
-
 pairs = [
     "EUR/USD",
     "GBP/USD",
