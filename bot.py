@@ -137,7 +137,10 @@ def callback(call):
                     signal = "🔴 بيع (PUT)"
                 else:
                     signal = "⏸ انتظار"
-else: signal = "⏳ جمع البيانات..."
+                    if price:
+    signal = "✅ تم جلب السعر"
+else:
+    signal = "⏳ جمع البيانات..."
 
      last_prices[pair] = price
 
