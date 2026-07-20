@@ -21,7 +21,7 @@ pairs = [
     "GBP/JPY",
     "EUR/GBP",
     "USD/CHF",
-    "XAU/USD (ذهب)"
+    "XAU/USD",
 ]
 
 signals_ar = [
