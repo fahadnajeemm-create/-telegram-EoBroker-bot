@@ -1,20 +1,31 @@
 import requests
+from config import TWELVE_API
 
 def get_price(pair):
     try:
-        # تحويل اسم الزوج إلى تنسيق مزود البيانات
-        symbol = pair.replace("/", "")
+        symbols = {
+            "XAU/USD": "XAU/USD",
+            "XAG/USD": "XAG/USD",
+        }
 
-        # مثال باستخدام مصدر مجاني
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}=X"
+        symbol = symbols.get(pair, pair)
+
+        url = (
+            f"https://api.twelvedata.com/price"
+            f"?symbol={symbol}"
+            f"&apikey={TWELVE_API}"
+        )
 
         response = requests.get(url, timeout=10)
         data = response.json()
 
-        result = data["chart"]["result"][0]
-        price = result["meta"]["regularMarketPrice"]
+        print(data)  # لمعرفة سبب الخطأ إذا حدث
 
-        return round(price, 5)
+        if "price" in data:
+            return float(data["price"])
 
-    except Exception:
+        return None
+
+    except Exception as e:
+        print(e)
         return None
