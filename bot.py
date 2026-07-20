@@ -148,7 +148,7 @@ def callback(call):
                 f"💰 السعر الحالي: {price}\n"
                 f"📊 الإشارة: {signal}\n"
                 f"⏱ مدة الصفقة: 30 ثانية\n"
-                f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+    f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
             )
 
         else:
