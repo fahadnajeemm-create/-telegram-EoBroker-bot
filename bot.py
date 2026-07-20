@@ -111,31 +111,31 @@ def callback(call):
         )
 
 
-    elif call.data.startswith("pair_"):
+elif call.data.startswith("pair_"):
 
-        pair = call.data.replace("pair_", "")
-        user_pair[chat_id] = pair
+pair = call.data.replace("pair_", "")
+user_pair[chat_id] = pair
 
-        bot.send_message(
-            chat_id,
-            f"تم اختيار الزوج ✅\n{pair}"
-        )
-        main_menu(chat_id)
-    elif call.data == "signal":
+bot.send_message(
+    chat_id,
+f"تم اختيار الزوج ✅\n{pair}"
+ )
+ main_menu(chat_id)
+ elif call.data == "signal":
 
-        pair = user_pair.get(chat_id, "EUR/USD")
-        price = get_price(pair)
+pair = user_pair.get(chat_id, "EUR/USD")
+price = get_price(pair)
 
-        if price:
+ if price:
 
-            old_price = last_prices.get(pair)
+old_price = last_prices.get(pair)
 
-            if old_price:
-                if price > old_price:
-                    signal = "🟢 شراء (CALL)"
-                elif price < old_price:
-                    signal = "🔴 بيع (PUT)"
-                else:
+if old_price:
+ if price > old_price:
+signal = "🟢 شراء (CALL)"
+elif price < old_price:
+signal = "🔴 بيع (PUT)"
+else:
  signal = "⏸ انتظار"
 if price:
 signal = "✅ تم جلب السعر"
