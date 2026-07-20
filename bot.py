@@ -38,14 +38,13 @@ types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
  reply_markup=keyboard)
 def main_menu(chat_id):
 keyboard = types.InlineKeyboardMarkup()
- keyboard.add(
+keyboard.add(
 types.InlineKeyboardButton("📊 الحصول على إشارة",
 callback_data="signal"))
  keyboard.add(
 types.InlineKeyboardButton( "💱 اختيار الزوج",
 callback_data="pairs"))
-bot.send_message(
-        chat_id,      "اختر من القائمة:",
+bot.send_message( chat_id, "اختر من القائمة:",
 reply_markup=keyboard)
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
@@ -88,19 +87,13 @@ signal = "✅ تم جلب السعر"
 else:
 signal = "⏳ جمع البيانات..."
 last_prices[pair] = price
-  bot.send_message(
-                chat_id,
-                f"💱 الزوج: {pair}\n"
-                f"💰 السعر الحالي: {price}\n"
-                f"📊 الإشارة: {signal}\n"
-                f"⏱ مدة الصفقة: 30 ثانية\n"
-    f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
-            )
-
-        else:
-            bot.send_message(
-                chat_id,
-                f"❌ لم يتم جلب السعر للزوج {pair}"
-    
+bot.send_message(chat_id,
+f"💱 الزوج: {pair}\n"
+f"💰 السعر الحالي: {price}\n"
+ f"📊 الإشارة: {signal}\n"
+ f"⏱ مدة الصفقة: 30 ثانية\n"
+    f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"  )
+else:
+bot.send_message(chat_id,f"❌ لم يتم جلب السعر للزوج {pair}"
 print("Bot is running...")
 bot.infinity_polling()
