@@ -31,7 +31,8 @@ signals_en = [
 keyboard = types.InlineKeyboardMarkup()keyboard.add(
 types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
 types.InlineKeyboardButton("English 🇬🇧", callback_data="en"))
-bot.send_message(message.chat.id,   "اختر اللغة / Choose language:",reply_markup=keyboard)def main_menu(chat_id):
+bot.send_message(message.chat.id,   "اختر اللغة / Choose language:",reply_markup=keyboard)
+def main_menu(chat_id):
 keyboard = types.InlineKeyboardMarkup() keyboard.add(
 types.InlineKeyboardButton("📊 الحصول على إشارة",
 callback_data="signal"))
