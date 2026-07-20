@@ -23,7 +23,7 @@ def get_price(pair):
         df["close"] = df["close"].astype(float)
         df = df.iloc[::-1].reset_index(drop=True)
 
-        # المؤشرات الفنية
+ # المؤشرات الفنية
         df["EMA9"] = ta.ema(df["close"], length=9)
         df["EMA21"] = ta.ema(df["close"], length=21)
         df["RSI"] = ta.rsi(df["close"], length=14)
