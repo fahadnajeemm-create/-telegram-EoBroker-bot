@@ -121,23 +121,40 @@ def callback(call):
             f"تم اختيار الزوج ✅\n{pair}"
         )
         main_menu(chat_id)
-
     elif call.data == "signal":
 
         pair = user_pair.get(chat_id, "EUR/USD")
         price = get_price(pair)
 
         if price:
+
+            old_price = last_prices.get(pair)
+
+            if old_price:
+                if price > old_price:
+                    signal = "🟢 شراء (CALL)"
+                elif price < old_price:
+                    signal = "🔴 بيع (PUT)"
+                else:
+                    signal = "⏸ انتظار"
+            else:
+                signal = "⏳ جمع البيانات..."
+
+            last_prices[pair] = price
+
             bot.send_message(
                 chat_id,
                 f"💱 الزوج: {pair}\n"
                 f"💰 السعر الحالي: {price}\n"
-            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+                f"📊 الإشارة: {signal}\n"
+                f"⏱ مدة الصفقة: 30 ثانية\n"
+                f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
             )
+
         else:
             bot.send_message(
                 chat_id,
                 f"❌ لم يتم جلب السعر للزوج {pair}"
-            )
+    
 print("Bot is running...")
 bot.infinity_polling()
