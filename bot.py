@@ -10,7 +10,7 @@ bot = telebot.TeleBot(TOKEN)
 
 user_language = {}
 user_pair = {}
-
+last_prices = {}
 pairs = [
     "EUR/USD",
     "GBP/USD",
