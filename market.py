@@ -74,15 +74,12 @@ def get_market_data(pair):
 def get_signal(pair):
 df = get_market_data(pair)
 if df is None: return "⏳ جمع البيانات..."
-
     last = df.iloc[-1]
-
-    if (
-        last["EMA20"] > last["EMA50"]
-        and last["MACD_12_26_9"] > last["MACDs_12_26_9"]
-        and last["RSI"] < 70
-    ):
-        return "📈 شراء 🟢"
+if (
+last["EMA20"] > last["EMA50"]
+and last["MACD_12_26_9"] > last["MACDs_12_26_9"]
+ and last["RSI"] < 70  ):
+    return "📈 شراء 🟢"
 
     elif (
         last["EMA20"] < last["EMA50"]
