@@ -44,37 +44,22 @@ def start(message):
         types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
         types.InlineKeyboardButton("English 🇬🇧", callback_data="en")
     )
-
-    bot.send_message(
-        message.chat.id,
-        "اختر اللغة / Choose language:",
-        reply_markup=keyboard
-    )
-
-
+ bot.send_message(
+ message.chat.id,   "اختر اللغة / Choose language:",
+ reply_markup=keyboard)
 def main_menu(chat_id):
     keyboard = types.InlineKeyboardMarkup()
-
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "📊 الحصول على إشارة",
-            callback_data="signal"
-        )
-    )
-
-    keyboard.add(
-        types.InlineKeyboardButton(
+ keyboard.add(
+types.InlineKeyboardButton(
+"📊 الحصول على إشارة",
+callback_data="signal"))
+ keyboard.add(
+types.InlineKeyboardButton(
             "💱 اختيار الزوج",
-            callback_data="pairs"
-        )
-    )
-
-    bot.send_message(
-        chat_id,
-        "اختر من القائمة:",
-        reply_markup=keyboard
-    )
-
+callback_data="pairs"))
+bot.send_message(
+        chat_id,      "اختر من القائمة:",
+reply_markup=keyboard)
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
 
@@ -103,10 +88,9 @@ reply_markup=keyboard )
 elif call.data.startswith("pair_"):
 pair = call.data.replace("pair_", "")
 user_pair[chat_id] = pair
-
 bot.send_message(
     chat_id,
-f"تم اختيار الزوج ✅\n{pair}"
+    f"تم اختيار الزوج ✅\n{pair}"
  )
  main_menu(chat_id)
  elif call.data == "signal":
