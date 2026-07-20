@@ -132,7 +132,7 @@ def callback(call):
                 chat_id,
                 f"💱 الزوج: {pair}\n"
                 f"💰 السعر الحالي: {price}\n"
-                f"⏰ الوقت: f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
             )
         else:
             bot.send_message(
