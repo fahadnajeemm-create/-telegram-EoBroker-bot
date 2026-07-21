@@ -1,8 +1,4 @@
 import telebot
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-import telebot
 from telebot import types
 
 from config import BOT_TOKEN, PAIRS
