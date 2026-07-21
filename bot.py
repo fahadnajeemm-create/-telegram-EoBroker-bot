@@ -101,44 +101,55 @@ def callback(call):
         )
 
      main_menu(chat_id)
-        
-elif call.data == "signal":
 
-    pair = user_pair.get(chat_id, "EUR/USD")
+    elif call.data.startswith("pair_"):
 
-    analysis = analyze_market(pair)
+        pair = call.data.replace("pair_", "")
+        user_pair[chat_id] = pair
 
-    if analysis:
+        bot.send_message(
+            chat_id,
+            f"تم اختيار الزوج ✅\n{pair}"
+        )
 
-        if analysis["signal"] == "CALL":
-            signal = "🟢 شراء (CALL)"
+        main_menu(chat_id)
 
-        elif analysis["signal"] == "PUT":
-            signal = "🔴 بيع (PUT)"
+    elif call.data == "signal":
+
+        pair = user_pair.get(chat_id, "EUR/USD")
+
+        analysis = analyze_market(pair)
+
+        if analysis:
+
+            if analysis["signal"] == "CALL":
+                signal = "🟢 شراء (CALL)"
+
+            elif analysis["signal"] == "PUT":
+                signal = "🔴 بيع (PUT)"
+
+            else:
+                signal = "🟡 انتظار"
+
+            bot.send_message(
+                chat_id,
+                f"💱 الزوج: {pair}\n\n"
+                f"💰 السعر الحالي: {analysis['price']}\n\n"
+                f"📊 الإشارة: {signal}\n"
+                f"🔥 قوة الإشارة: {analysis['strength']}%\n\n"
+                f"📈 EMA9 : {analysis['ema9']}\n"
+                f"📉 EMA21 : {analysis['ema21']}\n"
+                f"📊 RSI : {analysis['rsi']}\n"
+                f"📊 MACD : {analysis['macd']}\n"
+                f"📊 ADX : {analysis['adx']}\n\n"
+                f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
+                f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+            )
 
         else:
-            signal = "🟡 انتظار"
-
-        bot.send_message(
-            chat_id,
-            f"💱 الزوج: {pair}\n\n"
-            f"💰 السعر الحالي: {analysis['price']}\n\n"
-            f"📊 الإشارة: {signal}\n"
-            f"🔥 قوة الإشارة: {analysis['strength']}%\n\n"
-            f"📈 EMA9 : {analysis['ema9']}\n"
-            f"📉 EMA21 : {analysis['ema21']}\n"
-            f"📊 RSI : {analysis['rsi']}\n"
-            f"📊 MACD : {analysis['macd']}\n"
-            f"📊 ADX : {analysis['adx']}\n\n"
-            f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
-            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
-        )
-
-    else:
-        bot.send_message(
-            chat_id,
-            f"❌ لم يتم تحليل الزوج {pair}"
-        )
-    
+            bot.send_message(
+                chat_id,
+                f"❌ لم يتم تحليل الزوج {pair}"
+            )
 print("Bot is running...")
 bot.infinity_polling()
