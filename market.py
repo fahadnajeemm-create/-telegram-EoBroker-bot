@@ -79,7 +79,7 @@ def analyze_market(pair):
 
     if df is None or len(df) < 50:
         return None
-            score_buy = 0
+    score_buy = 0
     score_sell = 0
     reasons = []
 
@@ -187,7 +187,8 @@ def analyze_market(pair):
     elif last["close"] >= last["bb_high"]:
         score_sell += 20
         reasons.append("ارتداد من الحد العلوي")
-            # ==========================
+ 
+    # ==========================
     # تحديد الإشارة
     # ==========================
     if score_buy > score_sell:
