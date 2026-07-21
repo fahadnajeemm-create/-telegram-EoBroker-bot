@@ -1,11 +1,12 @@
 import telebot
-from telebot import types
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from config import BOT_TOKEN, PAIRS
-from market import analyze_market
+import telebot
+from telebot import types
 
+from config import BOT_TOKEN, PAIRS
+from market import get_price, get_candles, analyze_market
 bot = telebot.TeleBot(BOT_TOKEN)
 
 user_language = {}
