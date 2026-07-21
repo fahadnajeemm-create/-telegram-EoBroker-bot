@@ -4,7 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from config import BOT_TOKEN, PAIRS
-from market import get_price, get_candles
+from market import analyze_market
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -102,25 +102,44 @@ def callback(call):
         )
 
         main_menu(chat_id)
+elif call.data == "signal":
 
-    elif call.data == "signal":
+    pair = user_pair.get(chat_id, "EUR/USD")
 
-        pair = user_pair.get(chat_id, "EUR/USD")
+    analysis = analyze_market(pair)
 
-        price = get_price(pair)
-        candles = get_candles(pair)
+    if analysis:
 
-        if price is not None and candles:
-            closes = []
+        if analysis["signal"] == "CALL":
+            signal = "🟢 شراء (CALL)"
 
-            for candle in candles:
-                closes.append(float(candle["close"]))
+        elif analysis["signal"] == "PUT":
+            signal = "🔴 بيع (PUT)"
 
-            if len(closes) < 2:
-                bot.send_message(
-                    chat_id,
-                    "❌ لا توجد بيانات كافية للتحليل"
-                )
+        else:
+            signal = "🟡 انتظار"
+
+        bot.send_message(
+            chat_id,
+            f"💱 الزوج: {pair}\n\n"
+            f"💰 السعر الحالي: {analysis['price']}\n\n"
+            f"📊 الإشارة: {signal}\n"
+            f"🔥 قوة الإشارة: {analysis['strength']}%\n\n"
+            f"📈 EMA9 : {analysis['ema9']}\n"
+            f"📉 EMA21 : {analysis['ema21']}\n"
+            f"📊 RSI : {analysis['rsi']}\n"
+            f"📊 MACD : {analysis['macd']}\n"
+            f"📊 ADX : {analysis['adx']}\n\n"
+            f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
+            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+        )
+
+    else:
+        bot.send_message(
+            chat_id,
+            f"❌ لم يتم تحليل الزوج {pair}"
+        )
+    
                 return
 
             last_close = closes[0]
