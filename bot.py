@@ -1,107 +1,3 @@
-import telebot
-from telebot import types
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from market import get_price, get_candles
-
-TOKEN = "8920872994:AAG0t2VC48sfLIBznsjn9OUEV6A5VpKgnlc"
-
-bot = telebot.TeleBot(TOKEN)
-
-user_language = {}
-user_pair = {}
-last_prices = {}
-
-pairs = [
-    "EUR/USD",
-    "GBP/USD",
-    "USD/JPY",
-    "USD/CAD",
-    "AUD/USD",
-    "NZD/USD",
-    "EUR/JPY",
-    "GBP/JPY",
-    "EUR/GBP",
-    "USD/CHF",
-    "XAU/USD",
-]
-
-signals_ar = [
-    "📈 حركة سعرية\nالزوج: {pair}\nالمدة: 30 ثانية",
-    "📉 حركة سعرية\nالزوج: {pair}\nالمدة: 45 ثانية",
-]
-
-signals_en = [
-    "📈 Market update\nPair: {pair}\nDuration: 30 second",
-    "📉 Market update\nPair: {pair}\nDuration: 45 second",
-]
-
-@bot.message_handler(commands=["start"])
-def start(message):
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(
-        types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
-        types.InlineKeyboardButton("English 🇬🇧", callback_data="en"),
-    )
-
-    bot.send_message(
-        message.chat.id,
-        "اختر اللغة / Choose language:",
-        reply_markup=keyboard,
-    )
-
-def main_menu(chat_id):
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "📊 الحصول على إشارة",
-            callback_data="signal",
-        )
-    )
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "💱 اختيار الزوج",
-            callback_data="pairs",
-        )
-    )
-
-    bot.send_message(
-        chat_id,
-        "اختر من القائمة:",
-        reply_markup=keyboard,
-    )
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    chat_id = call.message.chat.id
-
-    if call.data in ["ar", "en"]:
-        user_language[chat_id] = call.data
-
-        if call.data == "ar":
-            bot.send_message(chat_id, "تم اختيار العربية ✅")
-        else:
-            bot.send_message(chat_id, "English selected ✅")
-
-        main_menu(chat_id)
-
-    elif call.data == "pairs":
-        keyboard = types.InlineKeyboardMarkup()
-
-        for pair in pairs:
-            keyboard.add(
-                types.InlineKeyboardButton(
-                    pair,
-                    callback_data=f"pair_{pair}",
-                )
-            )
-
-        bot.send_message(
-            chat_id,
-            "اختر الزوج:",
-            reply_markup=keyboard,
-        )
-
     elif call.data.startswith("pair_"):
         pair = call.data.replace("pair_", "")
         user_pair[chat_id] = pair
@@ -110,62 +6,47 @@ def callback(call):
             chat_id,
             f"تم اختيار الزوج ✅\n{pair}",
         )
-  main_menu(chat_id)
-elif call.data == "signal":
-    pair = user_pair.get(chat_id, "EUR/USD")
 
-price = get_price(pair)
-candles = get_candles(pair)
+        main_menu(chat_id)
 
- if price is not None and candles:
-closes = []
+    elif call.data == "signal":
+        pair = user_pair.get(chat_id, "EUR/USD")
 
- for candle in candles:
-            closes.append(float(candle["close"]))
+        price = get_price(pair)
+        candles = get_candles(pair)
 
- last_close = closes[0]
-    previous_close = closes[1]
+        if price is not None and candles:
 
-     if last_close > previous_close:
-            signal = "🟢 شراء (CALL)"
-            duration = "30 ثانية"
+            closes = []
+            for candle in candles:
+                closes.append(float(candle["close"]))
 
-     elif last_close < previous_close:
-            signal = "🔴 بيع (PUT)"
-            duration = "45 ثانية"
+            last_close = closes[0]
+            previous_close = closes[1]
 
-else:
-        signal = "⏸ انتظار"
-        duration = "30 ثانية"
+            if last_close > previous_close:
+                signal = "🟢 شراء (CALL)"
+                duration = "30 ثانية"
 
-        bot.send_message(
-            chat_id,
-            f"💱 الزوج: {pair}\n"
-            f"💰 السعر الحالي: {price}\n"
-            f"📊 الإشارة: {signal}\n"
-            f"⏱ مدة الصفقة: {duration}\n"
-            f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}",
-        )
+            elif last_close < previous_close:
+                signal = "🔴 بيع (PUT)"
+                duration = "45 ثانية"
 
-else:
-        bot.send_message(
-            chat_id,
-            "❌ لا توجد بيانات كافية للتحليل"
-        )
+            else:
+                signal = "⏸ انتظار"
+                duration = "30 ثانية"
+
             bot.send_message(
                 chat_id,
                 f"💱 الزوج: {pair}\n"
                 f"💰 السعر الحالي: {price}\n"
                 f"📊 الإشارة: {signal}\n"
-                f"⏱ مدة الصفقة: 30 ثانية\n"
+                f"⏱ مدة الصفقة: {duration}\n"
                 f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}",
             )
 
-    else:
+        else:
             bot.send_message(
                 chat_id,
-                f"❌ لم يتم جلب السعر للزوج {pair}",
+                f"❌ لم يتم جلب البيانات للزوج {pair}",
             )
-
-print("Bot is running...")
-bot.infinity_polling()
