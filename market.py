@@ -13,7 +13,7 @@ except ImportError:
 def get_price(pair):
     """جلب السعر الحالي للزوج"""
     try:
-        symbol = pair.replace("/", "")
+        print(data)
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
