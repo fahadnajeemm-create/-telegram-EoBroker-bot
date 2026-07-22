@@ -42,7 +42,7 @@ def get_price(pair):
 def get_candles(pair):
     try:
         # تحويل اسم الزوج إلى صيغة API
-        symbol = pair.replace("/", "")
+        symbol = pair
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
