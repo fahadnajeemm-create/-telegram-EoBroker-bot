@@ -96,20 +96,18 @@ def analyze_market(pair):
         df = df.dropna()
         if len(df) == 0:
             print("جميع القيم NaN بعد الحسابات")
-            return None
-        last = df.iloc[-1]
-        if last["ema9"] > last["ema21"]:
-        score_buy += 20
-        reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
-        else:
-            score_sell += 20
-            reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
-        if last["rsi"] > 60:
-            score_buy += 15
-            reasons.append(f"RSI قوي = {last['rsi']:.1f}")
-        elif last["rsi"] > 55:
-            score_buy += 10
-            reasons.append(f"RSI = {last['rsi']:.1f}")
+     return None
+ last = df.iloc[-1]
+if last["ema9"] > last["ema21"]:
+score_buy += 20
+reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
+else:
+score_sell += 20
+reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
+if last["rsi"] > 60:score_buy += 15
+reasons.append(f"RSI قوي = {last['rsi']:.1f}")
+ elif last["rsi"] > 55:score_buy += 10
+  reasons.append(f"RSI = {last['rsi']:.1f}")
         elif last["rsi"] < 40:
             score_sell += 15
             reasons.append(f"RSI ضعيف = {last['rsi']:.1f}")
