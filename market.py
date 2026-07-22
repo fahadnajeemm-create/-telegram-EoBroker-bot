@@ -11,12 +11,12 @@ except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
 def get_price(pair):
     try:
-        pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
-        api_key = TWELVE_API or os.environ.get('TWELVE_API')
-        if not api_key:
-        print("خطأ: مفتاح API غير موجود")
-         return None
-     url = (
+     pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
+    api_key = TWELVE_API or os.environ.get('TWELVE_API')
+ if not api_key:
+print("خطأ: مفتاح API غير موجود")
+return None
+ url = (
             f"https://api.twelvedata.com/price"
             f"?symbol={pair}"
             f"&apikey={TWELVE_API}"
