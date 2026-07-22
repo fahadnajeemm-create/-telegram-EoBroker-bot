@@ -154,6 +154,14 @@ def analyze_market(pair):
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
         
+        # متوسط ATR لآخر 20 شمعة
+atr_avg = df["atr"].tail(20).mean()
+
+# فلتر التذبذب
+if last["atr"] < atr_avg * 0.7:
+    print("⚠️ السوق هادئ، تم تجاهل الإشارة")
+    return None
+        
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
         print(f"📊 ADX: {last['adx']:.2f}")
