@@ -20,7 +20,7 @@ def get_price(pair):
             print("خطأ: مفتاح API غير موجود")
             return None
         
-        url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={api_key}"
+        url = url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={api_key}"
         print(f"جاري جلب السعر: {url}")
         
         response = requests.get(url, timeout=10)
