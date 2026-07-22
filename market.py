@@ -13,71 +13,102 @@ except ImportError:
 def get_price(pair):
     """جلب السعر الحالي للزوج"""
     try:
-        symbol = pair  # تم الاحتفاظ بها كما طلبت
+        symbol = pair
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
-            print("خطأ: مفتاح API غير موجود")
+            print("❌ خطأ: مفتاح API غير موجود")
             return None
         
         url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={api_key}"
-        print(f"جاري جلب السعر: {url}")
+        print(f"🔄 جاري جلب السعر: {url}")
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        print(data)
         
         if "price" in data:
             return float(data["price"])
-        elif "status" in data and data["status"] == "error":
-            print(f"خطأ في API: {data.get('message', 'خطأ غير معروف')}")
+        else:
+            print(f"⚠️ لم يتم العثور على السعر في الاستجابة: {data}")
             return None
-        return None
     except Exception as e:
-        print(f"خطأ في get_price: {e}")
+        print(f"❌ خطأ في get_price: {e}")
         return None
 
 def get_candles(pair):
     """جلب بيانات الشموع من API"""
     try:
-        symbol = pair  # تم الاحتفاظ بها كما طلبت
+        symbol = pair
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
-            print("خطأ: مفتاح API غير موجود")
+            print("❌ خطأ: مفتاح API غير موجود")
             return None
         
+        # محاولة مع الصيغة الأصلية
         url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
-        print(f"جاري جلب الشموع: {url}")
+        print(f"🔄 جاري جلب الشموع: {url}")
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
+        # طباعة جزء من الاستجابة للتشخيص
+        print(f"📊 نوع الاستجابة: {type(data)}")
+        if isinstance(data, dict):
+            print(f"📊 مفاتيح الاستجابة: {list(data.keys())}")
+        
+        # التحقق من وجود أخطاء
         if "status" in data and data["status"] == "error":
-            print(f"خطأ في API: {data.get('message', 'خطأ غير معروف')}")
-            return None
+            error_msg = data.get('message', 'خطأ غير معروف')
+            print(f"❌ خطأ في API: {error_msg}")
+            
+            # محاولة إزالة "/" من الرمز
+            if "/" in pair:
+                print(f"🔄 محاولة مع الرمز بدون /: {pair.replace('/', '')}")
+                symbol2 = pair.replace("/", "")
+                url2 = f"https://api.twelvedata.com/time_series?symbol={symbol2}&interval=1min&outputsize=200&apikey={api_key}"
+                response2 = requests.get(url2, timeout=10)
+                response2.raise_for_status()
+                data = response2.json()
+                
+                if "values" in data and data["values"]:
+                    print(f"✅ نجح جلب البيانات بالرمز: {symbol2}")
+                else:
+                    return None
+            else:
+                return None
         
+        # التحقق من وجود بيانات
         if "values" not in data or not data["values"]:
-            print(f"لا توجد بيانات للزوج {pair}")
+            print(f"❌ لا توجد بيانات للزوج {pair}")
+            print(f"📊 البيانات المستلمة: {data}")
             return None
         
+        # تحويل البيانات إلى DataFrame
         df = pd.DataFrame(data["values"])
+        print(f"📊 عدد الصفوف قبل التنظيف: {len(df)}")
+        
+        # تحويل الأعمدة الرقمية
         for col in ["open", "high", "low", "close"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
+        # حذف القيم المفقودة
         df = df.dropna()
+        print(f"📊 عدد الصفوف بعد التنظيف: {len(df)}")
+        
         if len(df) < 50:
-            print(f"عدد الشموع غير كافٍ: {len(df)}")
+            print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 50 على الأقل)")
             return None
         
+        # ترتيب البيانات من الأقدم إلى الأحدث
         df = df.iloc[::-1].reset_index(drop=True)
-        print(f"تم جلب {len(df)} شمعة لـ {pair}")
+        print(f"✅ تم جلب {len(df)} شمعة لـ {pair}")
         return df
     except Exception as e:
-        print(f"خطأ في get_candles: {e}")
+        print(f"❌ خطأ في get_candles: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -85,56 +116,70 @@ def get_candles(pair):
 def analyze_market(pair):
     """تحليل السوق وإصدار إشارة تداول"""
     try:
-        print(f"=" * 50)
-        print(f"جاري تحليل الزوج: {pair}")
-        print(f"=" * 50)
+        print(f"\n{'=' * 50}")
+        print(f"🔍 جاري تحليل الزوج: {pair}")
+        print(f"{'=' * 50}")
         
+        # جلب بيانات الشموع
         df = get_candles(pair)
-        if df is None or len(df) < 50:
-            print(f"بيانات غير كافية لتحليل {pair}")
+        if df is None:
+            print(f"❌ فشل جلب البيانات لـ {pair}")
             return None
         
-        print(f"تم جلب {len(df)} شمعة، جاري التحليل...")
+        if len(df) < 50:
+            print(f"❌ بيانات غير كافية لتحليل {pair} (عدد الشموع: {len(df)})")
+            return None
+        
+        print(f"✅ تم جلب {len(df)} شمعة، جاري التحليل...")
         
         score_buy = 0
         score_sell = 0
         reasons = []
         
         # حساب المؤشرات الفنية
-        df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
-        df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
-        df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
+        print("🔄 حساب المؤشرات الفنية...")
+        try:
+            df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
+            df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
+            df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
+            
+            macd = ta.trend.MACD(df["close"])
+            df["macd"] = macd.macd()
+            df["macd_signal"] = macd.macd_signal()
+            
+            adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
+            df["adx"] = adx.adx()
+            
+            bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
+            df["bb_high"] = bb.bollinger_hband()
+            df["bb_low"] = bb.bollinger_lband()
+            df["bb_mid"] = bb.bollinger_mavg()
+            
+            atr = ta.volatility.AverageTrueRange(
+                high=df["high"],
+                low=df["low"],
+                close=df["close"],
+                window=14
+            )
+            df["atr"] = atr.average_true_range()
+            
+            print("✅ تم حساب جميع المؤشرات بنجاح")
+        except Exception as e:
+            print(f"❌ خطأ في حساب المؤشرات: {e}")
+            return None
         
-        macd = ta.trend.MACD(df["close"])
-        df["macd"] = macd.macd()
-        df["macd_signal"] = macd.macd_signal()
-        
-        adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
-        df["adx"] = adx.adx()
-        
-        bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
-        df["bb_high"] = bb.bollinger_hband()
-        df["bb_low"] = bb.bollinger_lband()
-        df["bb_mid"] = bb.bollinger_mavg()
-        
-        # حساب ATR (تم تصحيح المسافة البادئة)
-        atr = ta.volatility.AverageTrueRange(
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            window=14
-        )
-        df["atr"] = atr.average_true_range()
-        
+        # حذف القيم المفقودة
         df = df.dropna()
         if len(df) == 0:
-            print("جميع القيم NaN بعد الحسابات")
+            print("❌ جميع القيم NaN بعد الحسابات")
             return None
         
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
-        print(f"آخر سعر: {last['close']}")
+        print(f"📊 آخر سعر: {last['close']:.5f}")
+        print(f"📊 RSI: {last['rsi']:.2f}")
+        print(f"📊 ADX: {last['adx']:.2f}")
         
         # 1. تحليل EMA
         if last["ema9"] > last["ema21"]:
@@ -184,7 +229,7 @@ def analyze_market(pair):
             score_sell += 10
             reasons.append(f"✅ ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
         
-        # 6. تحليل ATR (مؤشر إضافي)
+        # 6. تحليل ATR
         if last["atr"] > 0:
             reasons.append(f"📊 ATR = {last['atr']:.5f} (التقلب)")
         
@@ -194,7 +239,10 @@ def analyze_market(pair):
         else:
             signal = "PUT"
         
-        # 8. حساب قوة الإشارة (نظام التسجيل المحسن)
+        print(f"📊 نقاط الشراء: {score_buy}, نقاط البيع: {score_sell}")
+        print(f"📊 الإشارة الأولية: {signal}")
+        
+        # 8. حساب قوة الإشارة
         score = 0
         max_score = 8
         
@@ -218,13 +266,13 @@ def analyze_market(pair):
         if last["adx"] >= 25:
             score += 1
         
-        # Bollinger (الخط الأوسط)
+        # Bollinger
         if signal == "CALL" and last["close"] > last["bb_mid"]:
             score += 1
         elif signal == "PUT" and last["close"] < last["bb_mid"]:
             score += 1
         
-        # قوة الشمعة (Body/Range)
+        # قوة الشمعة
         if candle_range > 0 and (body / candle_range) >= 0.6:
             score += 1
         
@@ -237,7 +285,7 @@ def analyze_market(pair):
             if (last3["close"] < last3["open"]).sum() >= 2:
                 score += 1
         
-        # السعر بالنسبة لـ EMA21
+        # السعر مقابل EMA21
         if signal == "CALL" and last["close"] > last["ema21"]:
             score += 1
         elif signal == "PUT" and last["close"] < last["ema21"]:
@@ -245,6 +293,7 @@ def analyze_market(pair):
         
         # حساب النسبة المئوية للقوة
         strength = int((score / max_score) * 100)
+        print(f"📊 نقاط القوة: {score}/{max_score} = {strength}%")
         
         # لا ترسل الإشارات الضعيفة
         if strength < 90:
@@ -257,7 +306,7 @@ def analyze_market(pair):
         else:
             duration = 45
         
-        # 9. تجهيز النتيجة
+        # تجهيز النتيجة
         result = {
             "signal": signal,
             "strength": strength,
@@ -276,7 +325,7 @@ def analyze_market(pair):
         }
         
         print(f"✅ تم تحليل {pair} بنجاح")
-        print(f"الإشارة: {signal}, القوة: {strength}%")
+        print(f"📊 الإشارة: {signal}, القوة: {strength}%")
         return result
     except Exception as e:
         print(f"❌ خطأ في تحليل {pair}: {e}")
