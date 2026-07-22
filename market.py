@@ -55,7 +55,8 @@ def get_candles(pair):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+        print(response.status_code)
+        print(data)
         print(f"استجابة API: {data.keys() if isinstance(data, dict) else 'not dict'}")
         
         if "status" in data and data["status"] == "error":
