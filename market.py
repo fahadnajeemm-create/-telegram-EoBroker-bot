@@ -13,7 +13,7 @@ except ImportError:
 def get_price(pair):
     """جلب السعر الحالي للزوج"""
     try:
-      symbol = pair
+        symbol = pair  # تم الاحتفاظ بها كما طلبت
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
@@ -40,7 +40,7 @@ def get_price(pair):
 def get_candles(pair):
     """جلب بيانات الشموع من API"""
     try:
-        symbol = pair.replace("/", "")
+        symbol = pair  # تم الاحتفاظ بها كما طلبت
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
