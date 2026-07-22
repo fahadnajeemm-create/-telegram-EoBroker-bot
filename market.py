@@ -149,6 +149,8 @@ def analyze_market(pair):
         if len(df) == 0:
             print("❌ جميع القيم NaN بعد الحسابات")
             return None
+
+        "price": current_price if current_price else float(last["close"]),
         
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
