@@ -173,31 +173,25 @@ def analyze_market(pair):
             reasons.append(f"ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
         elif last["close"] >= last["bb_high"]:
             score_sell += 20
-            reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
-        
-        # Determine signal
+            reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.
+                                                                                          # Determine signal
         if score_buy > score_sell:
             signal = "CALL"
             strength = score_buy
         elif score_sell > score_buy:
             signal = "PUT"
             strength = score_sell
+        else:
+            signal = "WAIT"
+            strength = 50
 
-               else:
-              signal = "WAIT"
-                strength = 50
-
-                if strength < 60:
-                   signal = "WAIT"
-                    strength = 50
-
-      # Determine duration based on strength
-                if strength >= 90:
-                   duration = 30
-                 elif strength >= 75:
-                    duration = 45
-                   else:
-                    duration = 60
+        # Determine duration based on strength
+        if strength >= 90:
+            duration = 30
+        elif strength >= 75:
+            duration = 45
+        else:
+            duration = 60
 
         result = {
             "signal": signal,
