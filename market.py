@@ -122,6 +122,8 @@ def analyze_market(pair):
             return None
         
         last = df.iloc[-1]
+        body = abs(last["close"] - last["open"])
+        candle_range = last["high"] - last["low"]
         print(f"آخر سعر: {last['close']}")
         
         # 1. تحليل EMA
