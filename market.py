@@ -10,85 +10,54 @@ try:
 except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
 
-def get_price(pair):
-    """جلب السعر الحالي للزوج"""
-    try:
-        symbol = pair
-        
-        api_key = TWELVE_API or os.environ.get('TWELVE_API')
-        if not api_key:
-            print("❌ خطأ: مفتاح API غير موجود")
-            return None
-        
-        url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={api_key}"
-        print(f"🔄 جاري جلب السعر: {url}")
-        
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        if "price" in data:
-            return float(data["price"])
-        else:
-            print(f"⚠️ لم يتم العثور على السعر في الاستجابة: {data}")
-            return None
-    except Exception as e:
-        print(f"❌ خطأ في get_price: {e}")
-        return None
-
 def get_candles(pair):
-    """جلب بيانات الشموع من API"""
+    """جلب بيانات الشموع من API مع محاولات متعددة"""
     try:
-        symbol = pair
-        
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
             print("❌ خطأ: مفتاح API غير موجود")
             return None
         
-        # محاولة مع الصيغة الأصلية
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
-        print(f"🔄 جاري جلب الشموع: {url}")
+        # قائمة بصيغ الرموز المختلفة للمحاولة
+        symbols_to_try = [
+            pair,  # XAU/USD
+            pair.replace("/", ""),  # XAUUSD
+            pair.replace("/", "").upper(),  # XAUUSD
+            pair.split("/")[0] + pair.split("/")[1],  # XAUUSD
+        ]
         
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # إزالة التكرارات
+        symbols_to_try = list(dict.fromkeys(symbols_to_try))
         
-        # طباعة جزء من الاستجابة للتشخيص
-        print(f"📊 نوع الاستجابة: {type(data)}")
-        if isinstance(data, dict):
-            print(f"📊 مفاتيح الاستجابة: {list(data.keys())}")
+        df = None
         
-        # التحقق من وجود أخطاء
-        if "status" in data and data["status"] == "error":
-            error_msg = data.get('message', 'خطأ غير معروف')
-            print(f"❌ خطأ في API: {error_msg}")
+        for symbol in symbols_to_try:
+            print(f"🔄 محاولة جلب البيانات بالرمز: {symbol}")
             
-            # محاولة إزالة "/" من الرمز
-            if "/" in pair:
-                print(f"🔄 محاولة مع الرمز بدون /: {pair.replace('/', '')}")
-                symbol2 = pair.replace("/", "")
-                url2 = f"https://api.twelvedata.com/time_series?symbol={symbol2}&interval=1min&outputsize=200&apikey={api_key}"
-                response2 = requests.get(url2, timeout=10)
-                response2.raise_for_status()
-                data = response2.json()
+            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
+            
+            try:
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
                 
+                # التحقق من وجود بيانات
                 if "values" in data and data["values"]:
-                    print(f"✅ نجح جلب البيانات بالرمز: {symbol2}")
+                    print(f"✅ نجح جلب البيانات بالرمز: {symbol}")
+                    df = pd.DataFrame(data["values"])
+                    break
+                elif "status" in data and data["status"] == "error":
+                    print(f"⚠️ خطأ في API للرمز {symbol}: {data.get('message', 'خطأ غير معروف')}")
                 else:
-                    return None
-            else:
-                return None
+                    print(f"⚠️ لا توجد بيانات للرمز {symbol}")
+                    
+            except Exception as e:
+                print(f"⚠️ فشل المحاولة للرمز {symbol}: {e}")
+                continue
         
-        # التحقق من وجود بيانات
-        if "values" not in data or not data["values"]:
-            print(f"❌ لا توجد بيانات للزوج {pair}")
-            print(f"📊 البيانات المستلمة: {data}")
+        if df is None:
+            print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
             return None
-        
-        # تحويل البيانات إلى DataFrame
-        df = pd.DataFrame(data["values"])
-        print(f"📊 عدد الصفوف قبل التنظيف: {len(df)}")
         
         # تحويل الأعمدة الرقمية
         for col in ["open", "high", "low", "close"]:
@@ -97,7 +66,6 @@ def get_candles(pair):
         
         # حذف القيم المفقودة
         df = df.dropna()
-        print(f"📊 عدد الصفوف بعد التنظيف: {len(df)}")
         
         if len(df) < 50:
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 50 على الأقل)")
@@ -107,6 +75,7 @@ def get_candles(pair):
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair}")
         return df
+        
     except Exception as e:
         print(f"❌ خطأ في get_candles: {e}")
         import traceback
@@ -139,22 +108,29 @@ def analyze_market(pair):
         # حساب المؤشرات الفنية
         print("🔄 حساب المؤشرات الفنية...")
         try:
+            # EMA
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
             df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
+            
+            # RSI
             df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
             
+            # MACD
             macd = ta.trend.MACD(df["close"])
             df["macd"] = macd.macd()
             df["macd_signal"] = macd.macd_signal()
             
+            # ADX
             adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
             df["adx"] = adx.adx()
             
+            # Bollinger Bands
             bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
             df["bb_high"] = bb.bollinger_hband()
             df["bb_low"] = bb.bollinger_lband()
             df["bb_mid"] = bb.bollinger_mavg()
             
+            # ATR
             atr = ta.volatility.AverageTrueRange(
                 high=df["high"],
                 low=df["low"],
@@ -177,6 +153,7 @@ def analyze_market(pair):
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
+        
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
         print(f"📊 ADX: {last['adx']:.2f}")
@@ -295,16 +272,20 @@ def analyze_market(pair):
         strength = int((score / max_score) * 100)
         print(f"📊 نقاط القوة: {score}/{max_score} = {strength}%")
         
-        # لا ترسل الإشارات الضعيفة
-        if strength < 90:
-            print(f"❌ تم تجاهل الإشارة لأن قوتها {strength}% أقل من 90%")
+        # خفض عتبة القوة للتجربة (يمكنك رفعها لاحقاً)
+        min_strength = 70  # تم التخفيض من 90 إلى 70 للتجربة
+        
+        if strength < min_strength:
+            print(f"❌ تم تجاهل الإشارة لأن قوتها {strength}% أقل من {min_strength}%")
             return None
         
         # مدة الصفقة
         if strength >= 95:
             duration = 30
-        else:
+        elif strength >= 85:
             duration = 45
+        else:
+            duration = 60
         
         # تجهيز النتيجة
         result = {
@@ -327,43 +308,15 @@ def analyze_market(pair):
         print(f"✅ تم تحليل {pair} بنجاح")
         print(f"📊 الإشارة: {signal}, القوة: {strength}%")
         return result
+        
     except Exception as e:
         print(f"❌ خطأ في تحليل {pair}: {e}")
         import traceback
         traceback.print_exc()
         return None
 
-def test_analysis():
-    """اختبار تحليل جميع الأزواج"""
-    pairs = ["XAU/USD", "XAG/USD", "EUR/USD", "BTC/USD"]
-    for pair in pairs:
-        print(f"\n{'=' * 50}")
-        print(f"تحليل الزوج: {pair}")
-        print(f"{'=' * 50}")
-        result = analyze_market(pair)
-        if result:
-            print(f"\n📊 نتائج التحليل:")
-            print(f"الإشارة: {'🟢 شراء (CALL)' if result['signal'] == 'CALL' else '🔴 بيع (PUT)'}")
-            print(f"القوة: {result['strength']}%")
-            print(f"السعر: {result['price']:.5f}")
-            print(f"المدة: {result['duration']} ثانية")
-            print(f"\n📈 المؤشرات:")
-            print(f"  EMA9: {result['ema9']}")
-            print(f"  EMA21: {result['ema21']}")
-            print(f"  RSI: {result['rsi']}")
-            print(f"  MACD: {result['macd']}")
-            print(f"  ADX: {result['adx']}")
-            if 'atr' in result:
-                print(f"  ATR: {result['atr']}")
-            print(f"\n📋 أسباب الإشارة:")
-            for reason in result['reasons']:
-                print(f"  {reason}")
-        else:
-            print(f"❌ فشل تحليل {pair}")
-        time.sleep(2)
-
 def display_signal_formatted(result):
-    """عرض الإشارة بشكل منسق مثل المثال"""
+    """عرض الإشارة بشكل منسق"""
     if not result:
         return
     
@@ -396,13 +349,10 @@ def main():
         print('TWELVE_API = "مفتاح_api_الخاص_بك"')
         return
     
-    # تحليل زوج واحد بشكل منسق
+    # تحليل زوج واحد
     pair = "XAU/USD"
     result = analyze_market(pair)
     display_signal_formatted(result)
-    
-    # اختيارياً: اختبار جميع الأزواج
-    # test_analysis()
 
 if __name__ == "__main__":
     main()
