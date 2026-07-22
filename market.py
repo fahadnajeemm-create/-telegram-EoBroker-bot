@@ -184,17 +184,39 @@ def analyze_market(pair):
             signal = "PUT"
             diff = score_sell - score_buy
         
-        # حساب قوة الإشارة حسب الفارق
-        if diff >= 40:
-            strength = 95
-        elif diff >= 30:
-            strength = 90
-        elif diff >= 20:
-            strength = 80
-        elif diff >= 10:
-            strength = 70
-        else:
-            strength = 60
+           # حساب القوة بشكل أكثر واقعية
+strength = 50
+
+# EMA
+if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
+   (signal == "PUT" and last["ema9"] < last["ema21"]):
+    strength += 15
+
+# MACD
+if (signal == "CALL" and last["macd"] > last["macd_signal"]) or \
+   (signal == "PUT" and last["macd"] < last["macd_signal"]):
+    strength += 15
+
+# RSI
+if signal == "CALL":
+    if last["rsi"] >= 55:
+        strength += 10
+elif signal == "PUT":
+    if last["rsi"] <= 45:
+        strength += 10
+
+# ADX
+if last["adx"] >= 25:
+    strength += 10
+
+# Bollinger
+if signal == "CALL" and last["close"] <= last["bb_low"]:
+    strength += 10
+elif signal == "PUT" and last["close"] >= last["bb_high"]:
+    strength += 10
+
+# الحد الأقصى
+strength = min(strength, 90)
         
         # مدة الصفقة
         if strength >= 90:
