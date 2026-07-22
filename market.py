@@ -162,22 +162,18 @@ def analyze_market(pair):
             return None
 
         # جلب السعر الحالي
-        def get_price(pair):
-    try:
-        api_key = TWELVE_API or os.environ.get("TWELVE_API")
-
-        url = f"https://api.twelvedata.com/price?symbol={pair}&apikey={api_key}"
-
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        if "price" in data:
-            return float(data["price"])
-
-        return None
-
-    except Exception:
-        return None
+        def get_price_current(pair):
+            try:
+                api_key = TWELVE_API or os.environ.get("TWELVE_API")
+                url = f"https://api.twelvedata.com/price?symbol={pair}&apikey={api_key}"
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                if "price" in data:
+                    return float(data["price"])
+                return None
+            except Exception:
+                return None
+        
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
