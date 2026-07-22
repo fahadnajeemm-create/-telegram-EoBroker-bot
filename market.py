@@ -129,10 +129,10 @@ def analyze_market(pair):
         
         # EMA Analysis
         if last["ema9"] > last["ema21"]:
-            score_buy += 20
+            score_buy += 30
             reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
         else:
-            score_sell += 20
+            score_sell += 30
             reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
         
         # RSI Analysis
@@ -160,39 +160,50 @@ def analyze_market(pair):
         # ADX Analysis
         if last["adx"] >= 25:
             if score_buy > score_sell:
-                score_buy += 10
+                score_buy += 15
             elif score_sell > score_buy:
-                score_sell += 10
+                score_sell += 15
             reasons.append(f"ADX قوي = {last['adx']:.1f}")
         else:
             reasons.append(f"ADX ضعيف = {last['adx']:.1f}")
         
         # Bollinger Bands Analysis
         if last["close"] <= last["bb_low"]:
-            score_buy += 20
+            score_buy += 10
             reasons.append(f"ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
         elif last["close"] >= last["bb_high"]:
-            score_sell += 20
+            score_sell += 10
             reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
         
-        # Determine signal
-        if score_buy > score_sell:
-            signal = "CALL"
-            strength = score_buy
-        elif score_sell > score_buy:
-            signal = "PUT"
-            strength = score_sell
-        else:
-            signal = "WAIT"
-            strength = 50
+       # Determine signal
+total = score_buy + score_sell
 
-        # Determine duration based on strength
-        if strength >= 90:
-            duration = 30
-        elif strength >= 75:
-            duration = 45
-        else:
-            duration = 60
+if score_buy >= score_sell:
+    signal = "CALL"
+    diff = score_buy - score_sell
+else:
+    signal = "PUT"
+    diff = score_sell - score_buy
+
+# حساب قوة الإشارة حسب الفارق
+if diff >= 40:
+    strength = 95
+elif diff >= 30:
+    strength = 90
+elif diff >= 20:
+    strength = 80
+elif diff >= 10:
+    strength = 70
+else:
+    strength = 60
+
+# مدة الصفقة
+if strength >= 90:
+    duration = 30
+elif strength >= 80:
+    duration = 45
+else:
+    duration = 60
 
         result = {
             "signal": signal,
