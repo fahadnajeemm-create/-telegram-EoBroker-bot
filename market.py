@@ -12,84 +12,108 @@ except ImportError:
 
 def get_price(pair):
     try:
-        pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
+        # تحويل اسم الزوج إلى صيغة API
+        symbol = pair.replace("/", "")
+        
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
             print("خطأ: مفتاح API غير موجود")
             return None
-        url = f"https://api.twelvedata.com/price?symbol={pair}&apikey={api_key}"
+        
+        url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={api_key}"
+        print(f"جاري جلب السعر: {url}")
+        
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
+        print(f"بيانات السعر: {data}")
+        
         if "price" in data:
             return float(data["price"])
         elif "status" in data and data["status"] == "error":
             print(f"خطأ في API: {data.get('message', 'خطأ غير معروف')}")
             return None
         return None
-    except requests.exceptions.RequestException as e:
-        print(f"خطأ في الاتصال: {e}")
-        return None
-    except ValueError as e:
-        print(f"خطأ في تحويل البيانات: {e}")
-        return None
     except Exception as e:
-        print(f"خطأ غير متوقع في get_price: {e}")
+        print(f"خطأ في get_price: {e}")
         return None
 
 def get_candles(pair):
     try:
-        pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
+        # تحويل اسم الزوج إلى صيغة API
+        symbol = pair.replace("/", "")
+        
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
             print("خطأ: مفتاح API غير موجود")
             return None
-        url = f"https://api.twelvedata.com/time_series?symbol={pair}&interval=1min&outputsize=200&apikey={api_key}"
+        
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
+        print(f"جاري جلب الشموع: {url}")
+        
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
+        print(f"استجابة API: {data.keys() if isinstance(data, dict) else 'not dict'}")
+        
         if "status" in data and data["status"] == "error":
             print(f"خطأ في API: {data.get('message', 'خطأ غير معروف')}")
             return None
+        
         if "values" not in data or not data["values"]:
             print(f"لا توجد بيانات للزوج {pair}")
             return None
+        
         df = pd.DataFrame(data["values"])
         for col in ["open", "high", "low", "close"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+        
         df = df.dropna()
         if len(df) < 50:
             print(f"عدد الشموع غير كافٍ: {len(df)}")
             return None
+        
         df = df.iloc[::-1].reset_index(drop=True)
+        print(f"تم جلب {len(df)} شمعة لـ {pair}")
         return df
-    except requests.exceptions.RequestException as e:
-        print(f"خطأ في الاتصال: {e}")
-        return None
     except Exception as e:
-        print(f"خطأ غير متوقع في get_candles: {e}")
+        print(f"خطأ في get_candles: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def analyze_market(pair):
     try:
+        print(f"=========================================")
+        print(f"جاري تحليل الزوج: {pair}")
+        print(f"=========================================")
+        
         df = get_candles(pair)
         if df is None or len(df) < 50:
             print(f"بيانات غير كافية لتحليل {pair}")
             return None
         
+        print(f"تم جلب {len(df)} شمعة، جاري التحليل...")
+        
         score_buy = 0
         score_sell = 0
         reasons = []
         
+        # حساب المؤشرات
         df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
         df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
         df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
+        
         macd = ta.trend.MACD(df["close"])
         df["macd"] = macd.macd()
         df["macd_signal"] = macd.macd_signal()
+        
         adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
         df["adx"] = adx.adx()
+        
         bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
         df["bb_high"] = bb.bollinger_hband()
         df["bb_low"] = bb.bollinger_lband()
@@ -100,6 +124,7 @@ def analyze_market(pair):
             return None
         
         last = df.iloc[-1]
+        print(f"آخر سعر: {last['close']}")
         
         # EMA Analysis
         if last["ema9"] > last["ema21"]:
@@ -172,7 +197,7 @@ def analyze_market(pair):
         else:
             duration = 60
         
-        return {
+        result = {
             "signal": signal,
             "strength": strength,
             "duration": duration,
@@ -187,13 +212,18 @@ def analyze_market(pair):
             "timestamp": datetime.now().isoformat(),
             "pair": pair
         }
+        
+        print(f"✅ تم تحليل {pair} بنجاح")
+        print(f"الإشارة: {signal}, القوة: {strength}%")
+        return result
     except Exception as e:
-        print(f"خطأ في تحليل {pair}: {e}")
-        print(e)
+        print(f"❌ خطأ في تحليل {pair}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def test_analysis():
-    pairs = ["XAU/USD", "BTC/USD", "EUR/USD"]
+    pairs = ["XAU/USD", "XAG/USD", "EUR/USD", "BTC/USD"]
     for pair in pairs:
         print(f"\n{'='*50}")
         print(f"تحليل الزوج: {pair}")
@@ -202,20 +232,13 @@ def test_analysis():
         if result:
             print(f"الإشارة: {result['signal']}")
             print(f"القوة: {result['strength']}%")
-            print(f"المدة: {result['duration']} دقيقة")
             print(f"السعر: {result['price']}")
-            print(f"RSI: {result['rsi']}")
-            print(f"ADX: {result['adx']}")
-            print("الأسباب:")
-            for reason in result['reasons']:
-                print(f"  - {reason}")
         else:
-            print("فشل في الحصول على التحليل")
+            print(f"❌ فشل تحليل {pair}")
         time.sleep(1)
 
 if __name__ == "__main__":
     if not TWELVE_API and not os.environ.get('TWELVE_API'):
         print("تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
-        print("يرجى تعيين TWELVE_API في ملف config.py أو في متغيرات البيئة")
     else:
         test_analysis()
