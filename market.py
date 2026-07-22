@@ -20,7 +20,7 @@ def get_price(pair):
             print("خطأ: مفتاح API غير موجود")
             return None
         
-        url = url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={api_key}"
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=200&apikey={api_key}"
         print(f"جاري جلب السعر: {url}")
         
         response = requests.get(url, timeout=10)
@@ -173,8 +173,9 @@ def analyze_market(pair):
             reasons.append(f"ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
         elif last["close"] >= last["bb_high"]:
             score_sell += 20
-            reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.
-                                                                                          # Determine signal
+            reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
+        
+        # Determine signal
         if score_buy > score_sell:
             signal = "CALL"
             strength = score_buy
