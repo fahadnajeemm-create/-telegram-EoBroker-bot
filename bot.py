@@ -10,7 +10,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 user_language = {}
 user_pair = {}
 
-
 def main_menu(chat_id):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
 
@@ -34,7 +33,6 @@ def main_menu(chat_id):
         reply_markup=keyboard
     )
 
-
 @bot.message_handler(commands=["start"])
 def start(message):
     keyboard = types.InlineKeyboardMarkup()
@@ -56,10 +54,8 @@ def start(message):
         reply_markup=keyboard
     )
 
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
-
     chat_id = call.message.chat.id
 
     if call.data == "ar":
@@ -73,7 +69,6 @@ def callback(call):
         main_menu(chat_id)
 
     elif call.data == "pairs":
-
         keyboard = types.InlineKeyboardMarkup(row_width=2)
 
         for pair in PAIRS:
@@ -91,7 +86,6 @@ def callback(call):
         )
 
     elif call.data.startswith("pair_"):
-
         pair = call.data.replace("pair_", "")
         user_pair[chat_id] = pair
 
@@ -100,34 +94,18 @@ def callback(call):
             f"تم اختيار الزوج ✅\n{pair}"
         )
 
-     main_menu(chat_id)
-
-    elif call.data.startswith("pair_"):
-
-        pair = call.data.replace("pair_", "")
-        user_pair[chat_id] = pair
-
-        bot.send_message(
-            chat_id,
-            f"تم اختيار الزوج ✅\n{pair}"
-        )
-
-        main_menu(chat_id)
+        main_menu(chat_id)  # ✅ تم تصحيح المسافة البادئة
 
     elif call.data == "signal":
-
         pair = user_pair.get(chat_id, "EUR/USD")
 
         analysis = analyze_market(pair)
 
         if analysis:
-
             if analysis["signal"] == "CALL":
                 signal = "🟢 شراء (CALL)"
-
             elif analysis["signal"] == "PUT":
                 signal = "🔴 بيع (PUT)"
-
             else:
                 signal = "🟡 انتظار"
 
@@ -145,11 +123,11 @@ def callback(call):
                 f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
                 f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
             )
-
         else:
             bot.send_message(
                 chat_id,
                 f"❌ لم يتم تحليل الزوج {pair}"
             )
+
 print("Bot is running...")
 bot.infinity_polling()
