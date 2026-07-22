@@ -116,7 +116,15 @@ def analyze_market(pair):
         df["bb_high"] = bb.bollinger_hband()
         df["bb_low"] = bb.bollinger_lband()
         df["bb_mid"] = bb.bollinger_mavg()
-        
+
+        # ATR
+atr = ta.volatility.AverageTrueRange(
+    high=df["high"],
+    low=df["low"],
+    close=df["close"],
+    window=14
+)
+df["atr"] = atr.average_true_range()
         df = df.dropna()
         if len(df) == 0:
             print("جميع القيم NaN بعد الحسابات")
