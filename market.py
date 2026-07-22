@@ -25,7 +25,7 @@ def get_price(pair):
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        data = response.json() 
+        data = response.json()
         print(data)
         
         if "price" in data:
@@ -116,15 +116,16 @@ def analyze_market(pair):
         df["bb_high"] = bb.bollinger_hband()
         df["bb_low"] = bb.bollinger_lband()
         df["bb_mid"] = bb.bollinger_mavg()
-
-        # ATR
-atr = ta.volatility.AverageTrueRange(
-    high=df["high"],
-    low=df["low"],
-    close=df["close"],
-    window=14
-)
-df["atr"] = atr.average_true_range()
+        
+        # حساب ATR (تم تصحيح المسافة البادئة)
+        atr = ta.volatility.AverageTrueRange(
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
+            window=14
+        )
+        df["atr"] = atr.average_true_range()
+        
         df = df.dropna()
         if len(df) == 0:
             print("جميع القيم NaN بعد الحسابات")
@@ -183,13 +184,17 @@ df["atr"] = atr.average_true_range()
             score_sell += 10
             reasons.append(f"✅ ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
         
-        # 6. تحديد الإشارة
+        # 6. تحليل ATR (مؤشر إضافي)
+        if last["atr"] > 0:
+            reasons.append(f"📊 ATR = {last['atr']:.5f} (التقلب)")
+        
+        # 7. تحديد الإشارة
         if score_buy > score_sell:
             signal = "CALL"
         else:
             signal = "PUT"
         
-        # 7. حساب قوة الإشارة (نظام التسجيل المحسن)
+        # 8. حساب قوة الإشارة (نظام التسجيل المحسن)
         score = 0
         max_score = 8
         
@@ -252,7 +257,7 @@ df["atr"] = atr.average_true_range()
         else:
             duration = 45
         
-        # 8. تجهيز النتيجة
+        # 9. تجهيز النتيجة
         result = {
             "signal": signal,
             "strength": strength,
@@ -264,6 +269,7 @@ df["atr"] = atr.average_true_range()
             "macd": round(last["macd"], 5),
             "macd_signal": round(last["macd_signal"], 5),
             "adx": round(last["adx"], 2),
+            "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
             "reasons": reasons,
             "timestamp": datetime.now().isoformat(),
             "pair": pair
@@ -298,6 +304,8 @@ def test_analysis():
             print(f"  RSI: {result['rsi']}")
             print(f"  MACD: {result['macd']}")
             print(f"  ADX: {result['adx']}")
+            if 'atr' in result:
+                print(f"  ATR: {result['atr']}")
             print(f"\n📋 أسباب الإشارة:")
             for reason in result['reasons']:
                 print(f"  {reason}")
@@ -323,6 +331,8 @@ def display_signal_formatted(result):
     print(f"📊 RSI : {result['rsi']:.2f}")
     print(f"📊 MACD : {result['macd']:.4f}")
     print(f"📊 ADX : {result['adx']:.1f}")
+    if 'atr' in result and result['atr'] > 0:
+        print(f"📊 ATR : {result['atr']:.5f}")
     print("-" * 50)
     print(f"⏱ مدة الصفقة: {result['duration']} ثانية")
     print(f"⏰ الوقت: {datetime.now().strftime('%H:%M')}")
