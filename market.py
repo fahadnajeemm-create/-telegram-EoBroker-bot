@@ -182,9 +182,10 @@ def analyze_market(pair):
         elif score_sell > score_buy:
             signal = "PUT"
             strength = score_sell
-else:
-signal = "WAIT"
-strength = 50
+
+               else:
+    signal = "WAIT"
+    strength = 50
 
 if strength < 60:
     signal = "WAIT"
@@ -197,7 +198,7 @@ elif strength >= 75:
     duration = 45
 else:
     duration = 60
-        
+
         result = {
             "signal": signal,
             "strength": strength,
