@@ -25,7 +25,8 @@ def get_price(pair):
         
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        data = response.json()
+        data = response.json() 
+        print(data)
         
         if "price" in data:
             return float(data["price"])
