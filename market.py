@@ -11,8 +11,8 @@ except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
 
 def get_price(pair):
+    """جلب السعر الحالي للزوج"""
     try:
-        # تحويل اسم الزوج إلى صيغة API
         symbol = pair.replace("/", "")
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
@@ -27,8 +27,6 @@ def get_price(pair):
         response.raise_for_status()
         data = response.json()
         
-        print(f"بيانات السعر: {data}")
-        
         if "price" in data:
             return float(data["price"])
         elif "status" in data and data["status"] == "error":
@@ -40,9 +38,9 @@ def get_price(pair):
         return None
 
 def get_candles(pair):
+    """جلب بيانات الشموع من API"""
     try:
-        # تحويل اسم الزوج إلى صيغة API
-        symbol = pair
+        symbol = pair.replace("/", "")
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
@@ -55,8 +53,6 @@ def get_candles(pair):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        print(f"استجابة API: {data.keys() if isinstance(data, dict) else 'not dict'}")
         
         if "status" in data and data["status"] == "error":
             print(f"خطأ في API: {data.get('message', 'خطأ غير معروف')}")
@@ -86,10 +82,11 @@ def get_candles(pair):
         return None
 
 def analyze_market(pair):
+    """تحليل السوق وإصدار إشارة تداول"""
     try:
-        print(f"=========================================")
+        print(f"=" * 50)
         print(f"جاري تحليل الزوج: {pair}")
-        print(f"=========================================")
+        print(f"=" * 50)
         
         df = get_candles(pair)
         if df is None or len(df) < 50:
@@ -102,7 +99,7 @@ def analyze_market(pair):
         score_sell = 0
         reasons = []
         
-        # حساب المؤشرات
+        # حساب المؤشرات الفنية
         df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
         df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
         df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
@@ -126,7 +123,7 @@ def analyze_market(pair):
         last = df.iloc[-1]
         print(f"آخر سعر: {last['close']}")
         
-        # EMA Analysis
+        # 1. تحليل EMA
         if last["ema9"] > last["ema21"]:
             score_buy += 30
             reasons.append(f"✅ EMA صاعد (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
@@ -134,7 +131,7 @@ def analyze_market(pair):
             score_sell += 30
             reasons.append(f"✅ EMA هابط (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
         
-        # RSI Analysis
+        # 2. تحليل RSI
         if last["rsi"] > 60:
             score_buy += 15
             reasons.append(f"✅ RSI قوي = {last['rsi']:.1f}")
@@ -148,7 +145,7 @@ def analyze_market(pair):
             score_sell += 10
             reasons.append(f"✅ RSI = {last['rsi']:.1f}")
         
-        # MACD Analysis
+        # 3. تحليل MACD
         if last["macd"] > last["macd_signal"]:
             score_buy += 20
             reasons.append(f"✅ MACD صاعد ({last['macd']:.5f} > {last['macd_signal']:.5f})")
@@ -156,7 +153,7 @@ def analyze_market(pair):
             score_sell += 20
             reasons.append(f"✅ MACD هابط ({last['macd']:.5f} < {last['macd_signal']:.5f})")
         
-        # ADX Analysis
+        # 4. تحليل ADX
         if last["adx"] >= 25:
             if score_buy > score_sell:
                 score_buy += 15
@@ -166,7 +163,7 @@ def analyze_market(pair):
         else:
             reasons.append(f"⚠️ ADX ضعيف = {last['adx']:.1f}")
         
-        # Bollinger Bands Analysis
+        # 5. تحليل Bollinger Bands
         if last["close"] <= last["bb_low"]:
             score_buy += 10
             reasons.append(f"✅ ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
@@ -174,9 +171,7 @@ def analyze_market(pair):
             score_sell += 10
             reasons.append(f"✅ ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
         
-        # Determine signal
-        total = score_buy + score_sell
-        
+        # 6. تحديد الإشارة
         if score_buy >= score_sell:
             signal = "CALL"
             diff = score_buy - score_sell
@@ -184,41 +179,41 @@ def analyze_market(pair):
             signal = "PUT"
             diff = score_sell - score_buy
         
-           # حساب القوة بشكل أكثر واقعية
-strength = 50
-
-# EMA
-if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
-   (signal == "PUT" and last["ema9"] < last["ema21"]):
-    strength += 15
-
-# MACD
-if (signal == "CALL" and last["macd"] > last["macd_signal"]) or \
-   (signal == "PUT" and last["macd"] < last["macd_signal"]):
-    strength += 15
-
-# RSI
-if signal == "CALL":
-    if last["rsi"] >= 55:
-        strength += 10
-elif signal == "PUT":
-    if last["rsi"] <= 45:
-        strength += 10
-
-# ADX
-if last["adx"] >= 25:
-    strength += 10
-
-# Bollinger
-if signal == "CALL" and last["close"] <= last["bb_low"]:
-    strength += 10
-elif signal == "PUT" and last["close"] >= last["bb_high"]:
-    strength += 10
-
-# الحد الأقصى
-strength = min(strength, 90)
+        # 7. حساب قوة الإشارة (تم تصحيح المسافة البادئة)
+        strength = 50  # القاعدة
         
-        # مدة الصفقة
+        # EMA
+        if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
+           (signal == "PUT" and last["ema9"] < last["ema21"]):
+            strength += 15
+        
+        # MACD
+        if (signal == "CALL" and last["macd"] > last["macd_signal"]) or \
+           (signal == "PUT" and last["macd"] < last["macd_signal"]):
+            strength += 15
+        
+        # RSI
+        if signal == "CALL":
+            if last["rsi"] >= 55:
+                strength += 10
+        elif signal == "PUT":
+            if last["rsi"] <= 45:
+                strength += 10
+        
+        # ADX
+        if last["adx"] >= 25:
+            strength += 10
+        
+        # Bollinger
+        if signal == "CALL" and last["close"] <= last["bb_low"]:
+            strength += 10
+        elif signal == "PUT" and last["close"] >= last["bb_high"]:
+            strength += 10
+        
+        # الحد الأقصى
+        strength = min(strength, 90)
+        
+        # 8. تحديد مدة الصفقة
         if strength >= 90:
             duration = 30
         elif strength >= 80:
@@ -226,6 +221,7 @@ strength = min(strength, 90)
         else:
             duration = 60
         
+        # 9. تجهيز النتيجة
         result = {
             "signal": signal,
             "strength": strength,
@@ -252,11 +248,12 @@ strength = min(strength, 90)
         return None
 
 def test_analysis():
+    """اختبار تحليل جميع الأزواج"""
     pairs = ["XAU/USD", "XAG/USD", "EUR/USD", "BTC/USD"]
     for pair in pairs:
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         print(f"تحليل الزوج: {pair}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
         result = analyze_market(pair)
         if result:
             print(f"\n📊 نتائج التحليل:")
@@ -300,15 +297,22 @@ def display_signal_formatted(result):
     print(f"⏰ الوقت: {datetime.now().strftime('%H:%M')}")
     print("=" * 50)
 
-if __name__ == "__main__":
+def main():
+    """الوظيفة الرئيسية"""
     if not TWELVE_API and not os.environ.get('TWELVE_API'):
-        print("تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
+        print("⚠️ تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
         print("يرجى تعيين المتغير TWELVE_API في ملف config.py أو كمتغير بيئي")
-    else:
-        # تحليل زوج واحد بشكل منسق
-        pair = "XAU/USD"
-        result = analyze_market(pair)
-        display_signal_formatted(result)
-        
-        # اختبار جميع الأزواج
-        # test_analysis()
+        print("\nمثال config.py:")
+        print('TWELVE_API = "مفتاح_api_الخاص_بك"')
+        return
+    
+    # تحليل زوج واحد بشكل منسق
+    pair = "XAU/USD"
+    result = analyze_market(pair)
+    display_signal_formatted(result)
+    
+    # اختيارياً: اختبار جميع الأزواج
+    # test_analysis()
+
+if __name__ == "__main__":
+    main()
