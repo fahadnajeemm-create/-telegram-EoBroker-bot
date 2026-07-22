@@ -99,8 +99,8 @@ def analyze_market(pair):
             return None
         last = df.iloc[-1]
         if last["ema9"] > last["ema21"]:
-            score_buy += 20
-            reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
+        score_buy += 20
+        reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
         else:
             score_sell += 20
             reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
