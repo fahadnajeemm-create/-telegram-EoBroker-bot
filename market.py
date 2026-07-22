@@ -40,7 +40,7 @@ def get_price(pair):
 def get_candles(pair):
     """جلب بيانات الشموع من API"""
     try:
-        symbol = pair
+        symbol = pair.replace("/", "")
         
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
@@ -114,7 +114,7 @@ def analyze_market(pair):
         bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
         df["bb_high"] = bb.bollinger_hband()
         df["bb_low"] = bb.bollinger_lband()
-        df["bb_mid"] = bb.bollinger_mavg() 
+        df["bb_mid"] = bb.bollinger_mavg()
         
         df = df.dropna()
         if len(df) == 0:
@@ -172,76 +172,78 @@ def analyze_market(pair):
             reasons.append(f"✅ ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
         elif last["close"] >= last["bb_high"]:
             score_sell += 10
-            reasons.append(f"✅ ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.
-
-                                                                                    # 6. تحديد الإشارة وقوة التوافق
-
-if score_buy > score_sell:
-    signal = "CALL"
-else:
-    signal = "PUT"
-
-score = 0
-
-# EMA
-if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
-   (signal == "PUT" and last["ema9"] < last["ema21"]):
-    score += 1
-
-# RSI
-if signal == "CALL" and 55 <= last["rsi"] <= 70:
-    score += 1
-elif signal == "PUT" and 30 <= last["rsi"] <= 45:
-    score += 1
-
-# MACD
-if (signal == "CALL" and last["macd"] > last["macd_signal"]) or \
-   (signal == "PUT" and last["macd"] < last["macd_signal"]):
-    score += 1
-
-# ADX
-if last["adx"] >= 25:
-    score += 1
-
-# Bollinger (الخط الأوسط)
-if signal == "CALL" and last["close"] > last["bb_mid"]:
-    score += 1
-elif signal == "PUT" and last["close"] < last["bb_mid"]:
-    score += 1
-
-# قوة الشمعة
-if candle_range > 0 and (body / candle_range) >= 0.6:
-    score += 1
-
-# آخر 3 شموع
-last3 = df.tail(3)
-
-if signal == "CALL":
-    if (last3["close"] > last3["open"]).sum() >= 2:
-        score += 1
-elif signal == "PUT":
-    if (last3["close"] < last3["open"]).sum() >= 2:
-        score += 1
-
-# السعر بالنسبة لـ EMA21
-if signal == "CALL" and last["close"] > last["ema21"]:
-    score += 1
-elif signal == "PUT" and last["close"] < last["ema21"]:
-    score += 1
-
-strength = int((score / 8) * 100)
-
-# لا ترسل الإشارات الضعيفة
-if strength < 90:
-    print("❌ تم تجاهل الإشارة لأن قوتها أقل من 90%")
-    return None
-
-# مدة الصفقة
-if strength >= 95:
-    duration = 30
-else:
-    duration = 45
-        # 9. تجهيز النتيجة
+            reasons.append(f"✅ ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
+        
+        # 6. تحديد الإشارة
+        if score_buy > score_sell:
+            signal = "CALL"
+        else:
+            signal = "PUT"
+        
+        # 7. حساب قوة الإشارة (نظام التسجيل المحسن)
+        score = 0
+        max_score = 8
+        
+        # EMA
+        if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
+           (signal == "PUT" and last["ema9"] < last["ema21"]):
+            score += 1
+        
+        # RSI
+        if signal == "CALL" and 55 <= last["rsi"] <= 70:
+            score += 1
+        elif signal == "PUT" and 30 <= last["rsi"] <= 45:
+            score += 1
+        
+        # MACD
+        if (signal == "CALL" and last["macd"] > last["macd_signal"]) or \
+           (signal == "PUT" and last["macd"] < last["macd_signal"]):
+            score += 1
+        
+        # ADX
+        if last["adx"] >= 25:
+            score += 1
+        
+        # Bollinger (الخط الأوسط)
+        if signal == "CALL" and last["close"] > last["bb_mid"]:
+            score += 1
+        elif signal == "PUT" and last["close"] < last["bb_mid"]:
+            score += 1
+        
+        # قوة الشمعة (Body/Range)
+        if candle_range > 0 and (body / candle_range) >= 0.6:
+            score += 1
+        
+        # آخر 3 شموع
+        last3 = df.tail(3)
+        if signal == "CALL":
+            if (last3["close"] > last3["open"]).sum() >= 2:
+                score += 1
+        elif signal == "PUT":
+            if (last3["close"] < last3["open"]).sum() >= 2:
+                score += 1
+        
+        # السعر بالنسبة لـ EMA21
+        if signal == "CALL" and last["close"] > last["ema21"]:
+            score += 1
+        elif signal == "PUT" and last["close"] < last["ema21"]:
+            score += 1
+        
+        # حساب النسبة المئوية للقوة
+        strength = int((score / max_score) * 100)
+        
+        # لا ترسل الإشارات الضعيفة
+        if strength < 90:
+            print(f"❌ تم تجاهل الإشارة لأن قوتها {strength}% أقل من 90%")
+            return None
+        
+        # مدة الصفقة
+        if strength >= 95:
+            duration = 30
+        else:
+            duration = 45
+        
+        # 8. تجهيز النتيجة
         result = {
             "signal": signal,
             "strength": strength,
