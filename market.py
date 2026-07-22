@@ -10,6 +10,17 @@ try:
 except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
 
+def get_price(pair):
+    """الحصول على السعر الحالي"""
+    try:
+        # استخدام نفس آلية جلب البيانات
+        df = get_candles(pair)
+        if df is not None and len(df) > 0:
+            return float(df.iloc[-1]["close"])
+        return None
+    except:
+        return None
+
 def get_candles(pair):
     """جلب بيانات الشموع من API مع محاولات متعددة"""
     try:
@@ -150,19 +161,22 @@ def analyze_market(pair):
             print("❌ جميع القيم NaN بعد الحسابات")
             return None
 
-         current_price = get_price(pair)
+        # جلب السعر الحالي
+        current_price = get_price(pair)
+        if current_price is None:
+            current_price = df.iloc[-1]["close"]
         
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
         
         # متوسط ATR لآخر 20 شمعة
-atr_avg = df["atr"].tail(20).mean()
-
-# فلتر التذبذب
-if last["atr"] < atr_avg * 0.7:
-    print("⚠️ السوق هادئ، تم تجاهل الإشارة")
-    return None
+        atr_avg = df["atr"].tail(20).mean()
+        
+        # فلتر التذبذب
+        if last["atr"] < atr_avg * 0.7:
+            print("⚠️ السوق هادئ، تم تجاهل الإشارة")
+            return None
         
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
