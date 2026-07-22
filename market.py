@@ -4,23 +4,19 @@ import ta
 import os
 import time
 from datetime import datetime
-from config import TWELVE_API
+
 try:
     from config import TWELVE_API
 except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
+
 def get_price(pair):
     try:
-     pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
-    api_key = TWELVE_API or os.environ.get('TWELVE_API')
- if not api_key:
-print("خطأ: مفتاح API غير موجود")
-return None
- url = (
-            f"https://api.twelvedata.com/price"
-            f"?symbol={pair}"
-            f"&apikey={TWELVE_API}"
-        )
+        pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
+        api_key = TWELVE_API or os.environ.get('TWELVE_API')
+        if not api_key:
+            print("خطأ: مفتاح API غير موجود")
+            return None
         url = f"https://api.twelvedata.com/price?symbol={pair}&apikey={api_key}"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -40,6 +36,7 @@ return None
     except Exception as e:
         print(f"خطأ غير متوقع في get_price: {e}")
         return None
+
 def get_candles(pair):
     try:
         pair = pair.replace(" (ذهب)", "").replace(" (Gold)", "").strip()
@@ -73,15 +70,18 @@ def get_candles(pair):
     except Exception as e:
         print(f"خطأ غير متوقع في get_candles: {e}")
         return None
+
 def analyze_market(pair):
     try:
         df = get_candles(pair)
         if df is None or len(df) < 50:
             print(f"بيانات غير كافية لتحليل {pair}")
             return None
+        
         score_buy = 0
         score_sell = 0
         reasons = []
+        
         df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
         df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
         df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
@@ -93,33 +93,45 @@ def analyze_market(pair):
         bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
         df["bb_high"] = bb.bollinger_hband()
         df["bb_low"] = bb.bollinger_lband()
+        
         df = df.dropna()
         if len(df) == 0:
             print("جميع القيم NaN بعد الحسابات")
-     return None
- last = df.iloc[-1]
-if last["ema9"] > last["ema21"]:
-score_buy += 20
-reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
-else:
-score_sell += 20
-reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
-if last["rsi"] > 60:score_buy += 15
-reasons.append(f"RSI قوي = {last['rsi']:.1f}")
- elif last["rsi"] > 55:score_buy += 10
-  reasons.append(f"RSI = {last['rsi']:.1f}")
+            return None
+        
+        last = df.iloc[-1]
+        
+        # EMA Analysis
+        if last["ema9"] > last["ema21"]:
+            score_buy += 20
+            reasons.append(f"EMA صاعد ✅ (9: {last['ema9']:.5f} > 21: {last['ema21']:.5f})")
+        else:
+            score_sell += 20
+            reasons.append(f"EMA هابط ✅ (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
+        
+        # RSI Analysis
+        if last["rsi"] > 60:
+            score_buy += 15
+            reasons.append(f"RSI قوي = {last['rsi']:.1f}")
+        elif last["rsi"] > 55:
+            score_buy += 10
+            reasons.append(f"RSI = {last['rsi']:.1f}")
         elif last["rsi"] < 40:
             score_sell += 15
             reasons.append(f"RSI ضعيف = {last['rsi']:.1f}")
         elif last["rsi"] < 45:
             score_sell += 10
             reasons.append(f"RSI = {last['rsi']:.1f}")
+        
+        # MACD Analysis
         if last["macd"] > last["macd_signal"]:
             score_buy += 20
             reasons.append(f"MACD صاعد ✅ ({last['macd']:.5f} > {last['macd_signal']:.5f})")
         else:
             score_sell += 20
             reasons.append(f"MACD هابط ✅ ({last['macd']:.5f} < {last['macd_signal']:.5f})")
+        
+        # ADX Analysis
         if last["adx"] >= 25:
             if score_buy > score_sell:
                 score_buy += 10
@@ -128,12 +140,16 @@ reasons.append(f"RSI قوي = {last['rsi']:.1f}")
             reasons.append(f"ADX قوي = {last['adx']:.1f}")
         else:
             reasons.append(f"ADX ضعيف = {last['adx']:.1f}")
+        
+        # Bollinger Bands Analysis
         if last["close"] <= last["bb_low"]:
             score_buy += 20
             reasons.append(f"ارتداد من الحد السفلي (السعر: {last['close']:.5f} ≤ {last['bb_low']:.5f})")
         elif last["close"] >= last["bb_high"]:
             score_sell += 20
             reasons.append(f"ارتداد من الحد العلوي (السعر: {last['close']:.5f} ≥ {last['bb_high']:.5f})")
+        
+        # Determine signal
         if score_buy > score_sell:
             signal = "CALL"
             strength = score_buy
@@ -143,15 +159,19 @@ reasons.append(f"RSI قوي = {last['rsi']:.1f}")
         else:
             signal = "WAIT"
             strength = 50
+        
         if strength < 60:
             signal = "WAIT"
             strength = 50
+        
+        # Determine duration based on strength
         if strength >= 90:
             duration = 30
         elif strength >= 75:
             duration = 45
         else:
             duration = 60
+        
         return {
             "signal": signal,
             "strength": strength,
@@ -171,6 +191,7 @@ reasons.append(f"RSI قوي = {last['rsi']:.1f}")
         print(f"خطأ في تحليل {pair}: {e}")
         print(e)
         return None
+
 def test_analysis():
     pairs = ["XAU/USD", "BTC/USD", "EUR/USD"]
     for pair in pairs:
@@ -191,6 +212,7 @@ def test_analysis():
         else:
             print("فشل في الحصول على التحليل")
         time.sleep(1)
+
 if __name__ == "__main__":
     if not TWELVE_API and not os.environ.get('TWELVE_API'):
         print("تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
