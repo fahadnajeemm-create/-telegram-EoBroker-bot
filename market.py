@@ -4,11 +4,13 @@ import ta
 import os
 import time
 from datetime import datetime
+import json
 
 try:
-    from config import TWELVE_API
+    from config import TWELVE_API, NEWS_API
 except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
+    NEWS_API = os.environ.get('NEWS_API', '')
 
 def get_price(pair):
     """الحصول على السعر الحالي"""
@@ -20,8 +22,8 @@ def get_price(pair):
     except:
         return None
 
-def get_candles(pair, interval="1min", outputsize=200):
-    """جلب بيانات الشموع من API مع محاولات متعددة"""
+def get_candles(pair, interval="1min", outputsize=300):
+    """جلب بيانات الشموع من API مع محاولات متعددة - زيادة outputsize إلى 300"""
     try:
         api_key = TWELVE_API or os.environ.get('TWELVE_API')
         if not api_key:
@@ -68,14 +70,14 @@ def get_candles(pair, interval="1min", outputsize=200):
             print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
             return None
         
-        for col in ["open", "high", "low", "close"]:
+        for col in ["open", "high", "low", "close", "volume"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
         df = df.dropna()
         
-        if len(df) < 50:
-            print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 50 على الأقل)")
+        if len(df) < 100:  # زيادة الحد الأدنى
+            print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 100 على الأقل)")
             return None
         
         df = df.iloc[::-1].reset_index(drop=True)
@@ -89,7 +91,396 @@ def get_candles(pair, interval="1min", outputsize=200):
         return None
 
 # =============================================
-# دالة مساعدة: حساب Pivot Points
+# التحسين 1: فلتر الأخبار الاقتصادية
+# =============================================
+def check_news_impact(pair):
+    """التحقق من وجود أخبار اقتصادية مؤثرة"""
+    try:
+        # تحويل الزوج إلى العملات الأساسية
+        if "/" in pair:
+            base_currency, quote_currency = pair.split("/")
+        else:
+            base_currency = pair[:3]
+            quote_currency = pair[3:6]
+        
+        # قائمة العملات الرئيسية
+        major_currencies = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD"]
+        
+        # التحقق من وجود أخبار للعملات المعنية
+        news_keywords = []
+        if base_currency in major_currencies:
+            news_keywords.append(base_currency)
+        if quote_currency in major_currencies:
+            news_keywords.append(quote_currency)
+        
+        # إذا لم تكن العملات رئيسية، نتحقق من الذهب
+        if "XAU" in pair or "GOLD" in pair:
+            news_keywords.append("GOLD")
+        
+        if not news_keywords:
+            return True  # لا توجد أخبار مؤثرة متوقعة
+        
+        # استخدام API للأخبار (يمكن استبدالها بمصدر آخر)
+        if NEWS_API:
+            for keyword in news_keywords:
+                url = f"https://newsapi.org/v2/everything?q={keyword}&apiKey={NEWS_API}&language=en&pageSize=5"
+                try:
+                    response = requests.get(url, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("totalResults", 0) > 0:
+                            # التحقق من الأخبار العاجلة
+                            for article in data.get("articles", [])[:3]:
+                                title = article.get("title", "").lower()
+                                if any(word in title for word in ["emergency", "urgent", "breaking", "shock", "surprise"]):
+                                    print(f"⚠️ خبر عاجل لـ {keyword}: {article.get('title')}")
+                                    return False
+                except:
+                    pass
+        
+        return True  # لا توجد أخبار مؤثرة
+        
+    except Exception as e:
+        print(f"⚠️ خطأ في فحص الأخبار: {e}")
+        return True  # في حالة الخطأ، نسمح بالإشارة
+
+# =============================================
+# التحسين 2: فلتر حجم التداول (Volume)
+# =============================================
+def volume_filter(df, last):
+    """التحقق من حجم التداول - يجب أن يكون أعلى من المتوسط"""
+    try:
+        if "volume" not in df.columns:
+            return True, "⚠️ لا توجد بيانات حجم"
+        
+        avg_volume = df["volume"].tail(20).mean()
+        current_volume = last["volume"]
+        
+        if current_volume < avg_volume * 0.7:
+            return False, f"⚠️ حجم التداول منخفض: {current_volume:.0f} < {avg_volume * 0.7:.0f}"
+        
+        return True, f"✅ حجم التداول جيد: {current_volume:.0f} > {avg_volume * 0.7:.0f}"
+        
+    except Exception as e:
+        return True, f"⚠️ خطأ في فحص الحجم: {e}"
+
+# =============================================
+# التحسين 3: انتظار إغلاق الشمعة
+# =============================================
+def wait_for_candle_close(df):
+    """التحقق من أن الشمعة قاربت على الإغلاق"""
+    try:
+        # نحصل على وقت آخر شمعة
+        last_time = df.iloc[-1].get('datetime', None)
+        if last_time:
+            # نتحقق من الوقت المتبقي للإغلاق (تقريبي)
+            current_time = datetime.now()
+            # نفترض أن الشمعة كل دقيقة
+            seconds_remaining = 60 - current_time.second
+            if seconds_remaining > 30:
+                return False, f"⏳ انتظر {seconds_remaining} ثانية لإغلاق الشمعة"
+        
+        return True, "✅ الشمعة جاهزة للإغلاق"
+        
+    except:
+        return True, "⚠️ لا يمكن التحقق من وقت الشمعة"
+
+# =============================================
+# التحسين 4: زيادة نماذج Price Action
+# =============================================
+def enhanced_price_action_analysis(df, last):
+    """تحليل Price Action محسن مع المزيد من النماذج"""
+    reasons = []
+    pattern = None
+    score = 0
+    max_score = 7  # زيادة عدد النماذج
+    
+    if len(df) >= 5:
+        prev2 = df.iloc[-3]
+        prev = df.iloc[-2]
+        current = last
+        
+        body = abs(current["close"] - current["open"])
+        upper_shadow = current["high"] - max(current["open"], current["close"])
+        lower_shadow = min(current["open"], current["close"]) - current["low"]
+        total_range = current["high"] - current["low"]
+        
+        # 4.1 Bullish Engulfing
+        if (prev["close"] < prev["open"] and
+            current["close"] > current["open"] and
+            current["open"] < prev["close"] and
+            current["close"] > prev["open"]):
+            pattern = "BULLISH_ENGULFING"
+            score = 7
+            reasons.append("✅ Bullish Engulfing - نمط انعكاس صاعد قوي")
+        
+        # 4.2 Bearish Engulfing
+        elif (prev["close"] > prev["open"] and
+              current["close"] < current["open"] and
+              current["open"] > prev["close"] and
+              current["close"] < prev["open"]):
+            pattern = "BEARISH_ENGULFING"
+            score = 7
+            reasons.append("✅ Bearish Engulfing - نمط انعكاس هابط قوي")
+        
+        # 4.3 Pin Bar (مطرقة/نجم)
+        elif total_range > 0:
+            # Bullish Pin Bar (مطرقة)
+            if lower_shadow > body * 2 and upper_shadow < body * 0.5:
+                pattern = "BULLISH_PIN_BAR"
+                score = 6
+                reasons.append(f"✅ Bullish Pin Bar - ظل سفلي {lower_shadow:.5f} > {body * 2:.5f}")
+            
+            # Bearish Pin Bar (نجم)
+            elif upper_shadow > body * 2 and lower_shadow < body * 0.5:
+                pattern = "BEARISH_PIN_BAR"
+                score = 6
+                reasons.append(f"✅ Bearish Pin Bar - ظل علوي {upper_shadow:.5f} > {body * 2:.5f}")
+        
+        # 4.4 Inside Bar
+        if (prev["high"] > current["high"] and prev["low"] < current["low"]):
+            if not pattern:
+                pattern = "INSIDE_BAR"
+                score = max(score, 4)
+                reasons.append("✅ Inside Bar - شمعة داخل نطاق سابق")
+        
+        # 4.5 Outside Bar (عكس Inside)
+        if (current["high"] > prev["high"] and current["low"] < prev["low"]):
+            if not pattern:
+                pattern = "OUTSIDE_BAR"
+                score = max(score, 5)
+                reasons.append("✅ Outside Bar - شمعة تغطي الشمعة السابقة")
+        
+        # 4.6 Doji (شمعة الدوجي)
+        if total_range > 0 and body < total_range * 0.1:
+            if not pattern:
+                pattern = "DOJI"
+                score = max(score, 3)
+                reasons.append(f"✅ Doji - شمعة تردد ({body:.5f} < {total_range * 0.1:.5f})")
+        
+        # 4.7 Three White Soldiers / Three Black Crows
+        if len(df) >= 5:
+            last3 = df.tail(3)
+            
+            # Three White Soldiers (ثلاث شموع صاعدة متتالية)
+            if (last3["close"] > last3["open"]).all() and \
+               (last3["close"].diff() > 0).all():
+                if not pattern:
+                    pattern = "THREE_WHITE_SOLDIERS"
+                    score = max(score, 6)
+                    reasons.append("✅ Three White Soldiers - ثلاث شموع صاعدة متتالية")
+            
+            # Three Black Crows (ثلاث شموع هابطة متتالية)
+            elif (last3["close"] < last3["open"]).all() and \
+                 (last3["close"].diff() < 0).all():
+                if not pattern:
+                    pattern = "THREE_BLACK_CROWS"
+                    score = max(score, 6)
+                    reasons.append("✅ Three Black Crows - ثلاث شموع هابطة متتالية")
+    
+    # 4.8 Breakout (محسّن - استبعاد الشمعة الحالية)
+    resistance = df.iloc[:-1]["high"].tail(5).max()
+    support = df.iloc[:-1]["low"].tail(5).min()
+    
+    if current["close"] > resistance and current["close"] > current["open"]:
+        if not pattern or score < 5:
+            pattern = "BREAKOUT_BULLISH"
+            score = max(score, 5)
+            reasons.append(f"✅ اختراق مقاومة: {current['close']:.5f} > {resistance:.5f}")
+    
+    elif current["close"] < support and current["close"] < current["open"]:
+        if not pattern or score < 5:
+            pattern = "BREAKOUT_BEARISH"
+            score = max(score, 5)
+            reasons.append(f"✅ اختراق دعم: {current['close']:.5f} < {support:.5f}")
+    
+    return pattern, score, max_score, reasons
+
+# =============================================
+# التحسين 5: استخدام EMA100 مع EMA200
+# =============================================
+def enhanced_trend_analysis(df, last, atr):
+    """تحليل الاتجاه المحسن مع EMA100 و EMA200"""
+    reasons = []
+    score = 0
+    max_score = 6  # زيادة لاستيعاب EMA100
+    
+    # 5.1 EMA9 فوق/تحت EMA21
+    if last["ema9"] > last["ema21"]:
+        score += 1
+        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) > EMA21 ({last['ema21']:.5f})")
+    else:
+        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) < EMA21 ({last['ema21']:.5f})")
+    
+    # 5.2 اتجاه EMA21 (الميل الحقيقي - محسن)
+    ema21_slope = df["ema21"].diff().tail(5).mean()
+    if ema21_slope > 0:
+        score += 1
+        reasons.append(f"✅ EMA21 صاعد: {ema21_slope:.5f}")
+    else:
+        reasons.append(f"✅ EMA21 هابط: {ema21_slope:.5f}")
+    
+    # 5.3 السعر بالنسبة لـ EMA21
+    if last["close"] > last["ema21"]:
+        score += 1
+        reasons.append(f"✅ السعر ({last['close']:.5f}) > EMA21 ({last['ema21']:.5f})")
+    else:
+        reasons.append(f"✅ السعر ({last['close']:.5f}) < EMA21 ({last['ema21']:.5f})")
+    
+    # 5.4 فرق EMA بالنسبة لـ ATR
+    ema_diff = abs(last["ema9"] - last["ema21"])
+    atr_ratio = ema_diff / atr if atr > 0 else 0
+    if atr_ratio >= 0.3:
+        score += 1
+        reasons.append(f"✅ فرق EMA ({ema_diff:.5f}) = {atr_ratio:.1%} من ATR")
+    else:
+        reasons.append(f"⚠️ فرق EMA صغير: {atr_ratio:.1%} من ATR")
+    
+    # 5.5 EMA21 مقابل EMA100 (فلتر متوسط المدى)
+    if "ema100" in df.columns:
+        if last["ema21"] > last["ema100"]:
+            score += 1
+            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) > EMA100 ({last['ema100']:.5f})")
+        else:
+            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) < EMA100 ({last['ema100']:.5f})")
+    
+    # 5.6 EMA21 مقابل EMA200 (فلتر طويل المدى)
+    if "ema200" in df.columns:
+        if last["ema21"] > last["ema200"]:
+            score += 1
+            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) > EMA200 ({last['ema200']:.5f})")
+        else:
+            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) < EMA200 ({last['ema200']:.5f})")
+    
+    # تحديد الاتجاه
+    if score >= 4:
+        direction = "BULLISH" if last["ema9"] > last["ema21"] else "BEARISH"
+    else:
+        direction = "NEUTRAL"
+    
+    return direction, score, max_score, reasons
+
+# =============================================
+# التحسين 6: فلتر Bollinger Width
+# =============================================
+def bollinger_width_filter(df, last):
+    """فلتر عرض البولينجر - تجنب التقلبات العالية"""
+    try:
+        if "bb_high" not in df.columns or "bb_low" not in df.columns:
+            return True, "⚠️ لا توجد بيانات بولينجر"
+        
+        bb_width = (last["bb_high"] - last["bb_low"]) / last["bb_mid"]
+        avg_width = ((df["bb_high"] - df["bb_low"]) / df["bb_mid"]).tail(20).mean()
+        
+        if bb_width > avg_width * 1.5:
+            return False, f"⚠️ عرض البولينجر كبير: {bb_width:.2%} > {avg_width * 1.5:.2%}"
+        
+        return True, f"✅ عرض البولينجر طبيعي: {bb_width:.2%}"
+        
+    except Exception as e:
+        return True, f"⚠️ خطأ في فحص البولينجر: {e}"
+
+# =============================================
+# التحسين 7: استخدام Stochastic مع RSI
+# =============================================
+def stochastic_rsi_confirmation(df, last, direction):
+    """تأكيد الزخم باستخدام Stochastic و RSI"""
+    reasons = []
+    score = 0
+    max_score = 3
+    
+    try:
+        # حساب Stochastic
+        stoch = ta.momentum.StochasticOscillator(
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
+            window=14,
+            smooth_window=3
+        )
+        df["stoch_k"] = stoch.stoch()
+        df["stoch_d"] = stoch.stoch_signal()
+        
+        last = df.iloc[-1]
+        
+        # التحقق من Stochastic
+        if direction == "BULLISH":
+            if last["stoch_k"] > 20 and last["stoch_k"] < 80 and last["stoch_k"] > last["stoch_d"]:
+                score += 1.5
+                reasons.append(f"✅ Stochastic صاعد: K={last['stoch_k']:.1f} > D={last['stoch_d']:.1f}")
+            elif last["stoch_k"] < 20:  # منطقة ذروة البيع
+                score += 1
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع: K={last['stoch_k']:.1f}")
+            else:
+                reasons.append(f"⚠️ Stochastic غير داعم: K={last['stoch_k']:.1f}")
+        else:  # BEARISH
+            if last["stoch_k"] < 80 and last["stoch_k"] > 20 and last["stoch_k"] < last["stoch_d"]:
+                score += 1.5
+                reasons.append(f"✅ Stochastic هابط: K={last['stoch_k']:.1f} < D={last['stoch_d']:.1f}")
+            elif last["stoch_k"] > 80:  # منطقة ذروة الشراء
+                score += 1
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة الشراء: K={last['stoch_k']:.1f}")
+            else:
+                reasons.append(f"⚠️ Stochastic غير داعم: K={last['stoch_k']:.1f}")
+        
+        # التأكد من توافق RSI
+        if direction == "BULLISH" and 55 <= last["rsi"] <= 70:
+            score += 0.5
+            reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
+        elif direction == "BEARISH" and 30 <= last["rsi"] <= 45:
+            score += 0.5
+            reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
+        
+        return score, max_score, reasons
+        
+    except Exception as e:
+        return 0, max_score, [f"⚠️ خطأ في Stochastic: {e}"]
+
+# =============================================
+# التحسين 8: SuperTrend كفلتر اتجاه إضافي
+# =============================================
+def supertrend_filter(df, last, direction):
+    """فلتر SuperTrend للتأكيد على الاتجاه"""
+    try:
+        # حساب SuperTrend
+        atr = ta.volatility.AverageTrueRange(
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
+            window=10
+        )
+        df["atr_supertrend"] = atr.average_true_range()
+        
+        # حساب bands
+        multiplier = 3
+        df["upper_band"] = (df["high"] + df["low"]) / 2 + multiplier * df["atr_supertrend"]
+        df["lower_band"] = (df["high"] + df["low"]) / 2 - multiplier * df["atr_supertrend"]
+        
+        # تحديد اتجاه SuperTrend
+        df["supertrend"] = 1  # 1 = صاعد, -1 = هابط
+        for i in range(1, len(df)):
+            if df.iloc[i]["close"] > df.iloc[i-1]["upper_band"]:
+                df.iloc[i, df.columns.get_loc("supertrend")] = 1
+            elif df.iloc[i]["close"] < df.iloc[i-1]["lower_band"]:
+                df.iloc[i, df.columns.get_loc("supertrend")] = -1
+            else:
+                df.iloc[i, df.columns.get_loc("supertrend")] = df.iloc[i-1]["supertrend"]
+        
+        last_supertrend = df.iloc[-1]["supertrend"]
+        
+        # التحقق من التوافق
+        if direction == "BULLISH" and last_supertrend == 1:
+            return True, "✅ SuperTrend صاعد"
+        elif direction == "BEARISH" and last_supertrend == -1:
+            return True, "✅ SuperTrend هابط"
+        else:
+            return False, f"⚠️ SuperTrend غير متوافق: {last_supertrend}"
+        
+    except Exception as e:
+        return True, f"⚠️ خطأ في SuperTrend: {e}"
+
+# =============================================
+# دالة حساب Pivot Points (محسنة)
 # =============================================
 def find_pivot_points(df, window=5):
     """العثور على نقاط Pivot High و Pivot Low"""
@@ -116,20 +507,21 @@ def find_pivot_points(df, window=5):
     return pivots_high, pivots_low
 
 # =============================================
-# تحليل الفريمات المتعددة (5 دقائق + 1 دقيقة)
+# تحليل الفريمات المتعددة
 # =============================================
 def multi_timeframe_analysis(pair):
     """تحليل متعدد الفريمات - الاتجاه من 5 دقائق والدخول من 1 دقيقة"""
     try:
-        # جلب بيانات 5 دقائق للاتجاه
-        df_5m = get_candles(pair, interval="5min", outputsize=100)
-        if df_5m is None or len(df_5m) < 50:
+        # جلب بيانات 5 دقائق للاتجاه مع outputsize أكبر
+        df_5m = get_candles(pair, interval="5min", outputsize=300)
+        if df_5m is None or len(df_5m) < 100:
             print("❌ فشل جلب بيانات 5 دقائق")
             return None, None, None
         
         # حساب المؤشرات على فريم 5 دقائق
         df_5m["ema21"] = ta.trend.EMAIndicator(close=df_5m["close"], window=21).ema_indicator()
         df_5m["ema50"] = ta.trend.EMAIndicator(close=df_5m["close"], window=50).ema_indicator()
+        df_5m["ema100"] = ta.trend.EMAIndicator(close=df_5m["close"], window=100).ema_indicator()
         df_5m["ema200"] = ta.trend.EMAIndicator(close=df_5m["close"], window=200).ema_indicator()
         
         adx = ta.trend.ADXIndicator(high=df_5m["high"], low=df_5m["low"], close=df_5m["close"], window=14)
@@ -143,16 +535,18 @@ def multi_timeframe_analysis(pair):
         
         last_5m = df_5m.iloc[-1]
         
-        # تحديد الاتجاه على فريم 5 دقائق
+        # تحديد الاتجاه على فريم 5 دقائق مع EMA100 و EMA200
         is_bullish = (
             last_5m["ema21"] > last_5m["ema50"] and
-            last_5m["ema50"] > last_5m["ema200"] and
+            last_5m["ema50"] > last_5m["ema100"] and
+            last_5m["ema100"] > last_5m["ema200"] and
             last_5m["adx"] >= 25
         )
         
         is_bearish = (
             last_5m["ema21"] < last_5m["ema50"] and
-            last_5m["ema50"] < last_5m["ema200"] and
+            last_5m["ema50"] < last_5m["ema100"] and
+            last_5m["ema100"] < last_5m["ema200"] and
             last_5m["adx"] >= 25
         )
         
@@ -166,8 +560,8 @@ def multi_timeframe_analysis(pair):
         print(f"📊 اتجاه 5 دقائق: {direction_5m} (ADX: {last_5m['adx']:.1f})")
         
         # جلب بيانات 1 دقيقة للدخول
-        df_1m = get_candles(pair, interval="1min", outputsize=200)
-        if df_1m is None or len(df_1m) < 50:
+        df_1m = get_candles(pair, interval="1min", outputsize=300)
+        if df_1m is None or len(df_1m) < 100:
             print("❌ فشل جلب بيانات 1 دقيقة")
             return None, None, None
         
@@ -178,353 +572,35 @@ def multi_timeframe_analysis(pair):
         return None, None, None
 
 # =============================================
-# المرحلة 1: فلترة السوق (محسنة)
-# =============================================
-def market_filter(df, last, atr_percent):
-    """المرحلة 1: فلترة السوق - التحقق من ظروف السوق المناسبة"""
-    reasons = []
-    passed = True
-    failed_reasons = []
-    
-    # 1.1 التحقق من ADX (قوة الاتجاه)
-    if last["adx"] < 25:
-        msg = f"⚠️ ADX ضعيف: {last['adx']:.1f} (يحتاج ≥ 25)"
-        reasons.append(msg)
-        failed_reasons.append(msg)
-        passed = False
-    
-    # 1.2 التحقق من ATR كنسبة من السعر (بدلاً من القيمة المطلقة)
-    if atr_percent < 0.0008:  # 0.08% من السعر
-        msg = f"⚠️ التقلب منخفض: ATR {atr_percent:.4%} من السعر (يحتاج ≥ 0.08%)"
-        reasons.append(msg)
-        failed_reasons.append(msg)
-        passed = False
-    
-    # 1.3 التحقق من عدم وجود شمعة انفجارية
-    avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
-    body = abs(last["close"] - last["open"])
-    if body > avg_body * 2:
-        msg = f"⚠️ شمعة انفجارية: الجسم {body:.5f} > {avg_body * 2:.5f}"
-        reasons.append(msg)
-        failed_reasons.append(msg)
-        passed = False
-    
-    # 1.4 التحقق من عدم وجود تذبذب قوي
-    candle_range = last["high"] - last["low"]
-    avg_range = (df["high"] - df["low"]).tail(20).mean()
-    if candle_range > avg_range * 1.8:
-        msg = f"⚠️ تذبذب قوي: المدى {candle_range:.5f} > {avg_range * 1.8:.5f}"
-        reasons.append(msg)
-        failed_reasons.append(msg)
-        passed = False
-    
-    if passed:
-        reasons.append("✅ اجتازت فلترة السوق")
-    
-    return passed, reasons, failed_reasons
-
-# =============================================
-# المرحلة 2: تحديد الاتجاه (محسّن مع EMA200)
-# =============================================
-def trend_analysis(df, last, atr):
-    """المرحلة 2: تحديد الاتجاه مع وزن 30%"""
-    reasons = []
-    score = 0
-    max_score = 5
-    
-    # 2.1 EMA9 فوق/تحت EMA21
-    if last["ema9"] > last["ema21"]:
-        score += 1
-        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) > EMA21 ({last['ema21']:.5f})")
-    else:
-        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) < EMA21 ({last['ema21']:.5f})")
-    
-    # 2.2 اتجاه EMA21 (الميل الحقيقي - محسن)
-    ema21_slope = df["ema21"].diff().tail(5).mean()
-    if ema21_slope > 0:
-        score += 1
-        reasons.append(f"✅ EMA21 صاعد: {ema21_slope:.5f}")
-    else:
-        reasons.append(f"✅ EMA21 هابط: {ema21_slope:.5f}")
-    
-    # 2.3 السعر بالنسبة لـ EMA21
-    if last["close"] > last["ema21"]:
-        score += 1
-        reasons.append(f"✅ السعر ({last['close']:.5f}) > EMA21 ({last['ema21']:.5f})")
-    else:
-        reasons.append(f"✅ السعر ({last['close']:.5f}) < EMA21 ({last['ema21']:.5f})")
-    
-    # 2.4 فرق EMA بالنسبة لـ ATR
-    ema_diff = abs(last["ema9"] - last["ema21"])
-    atr_ratio = ema_diff / atr if atr > 0 else 0
-    if atr_ratio >= 0.3:
-        score += 1
-        reasons.append(f"✅ فرق EMA ({ema_diff:.5f}) = {atr_ratio:.1%} من ATR")
-    else:
-        reasons.append(f"⚠️ فرق EMA صغير: {atr_ratio:.1%} من ATR")
-    
-    # 2.5 EMA21 مقابل EMA200 (فلتر قوي)
-    if "ema200" in df.columns:
-        if last["ema21"] > last["ema200"]:
-            score += 1
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) > EMA200 ({last['ema200']:.5f})")
-        else:
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) < EMA200 ({last['ema200']:.5f})")
-    
-    # تحديد الاتجاه
-    if score >= 4:
-        direction = "BULLISH" if last["ema9"] > last["ema21"] else "BEARISH"
-    else:
-        direction = "NEUTRAL"
-    
-    return direction, score, max_score, reasons
-
-# =============================================
-# المرحلة 3: تحليل Price Action (محسّن)
-# =============================================
-def price_action_analysis(df, last):
-    """المرحلة 3: تحليل Price Action مع وزن 25%"""
-    reasons = []
-    pattern = None
-    score = 0
-    max_score = 5
-    
-    if len(df) >= 3:
-        prev = df.iloc[-2]
-        current = last
-        
-        body = abs(current["close"] - current["open"])
-        upper_shadow = current["high"] - max(current["open"], current["close"])
-        lower_shadow = min(current["open"], current["close"]) - current["low"]
-        total_range = current["high"] - current["low"]
-        
-        # 3.1 Bullish Engulfing
-        if (prev["close"] < prev["open"] and
-            current["close"] > current["open"] and
-            current["open"] < prev["close"] and
-            current["close"] > prev["open"]):
-            pattern = "BULLISH_ENGULFING"
-            score = 5
-            reasons.append("✅ Bullish Engulfing - نمط انعكاس صاعد قوي")
-        
-        # 3.2 Bearish Engulfing
-        elif (prev["close"] > prev["open"] and
-              current["close"] < current["open"] and
-              current["open"] > prev["close"] and
-              current["close"] < prev["open"]):
-            pattern = "BEARISH_ENGULFING"
-            score = 5
-            reasons.append("✅ Bearish Engulfing - نمط انعكاس هابط قوي")
-        
-        # 3.3 Pin Bar
-        elif total_range > 0:
-            if lower_shadow > body * 2 and upper_shadow < body * 0.5:
-                pattern = "BULLISH_PIN_BAR"
-                score = 4
-                reasons.append(f"✅ Bullish Pin Bar - ظل سفلي {lower_shadow:.5f} > {body * 2:.5f}")
-            
-            elif upper_shadow > body * 2 and lower_shadow < body * 0.5:
-                pattern = "BEARISH_PIN_BAR"
-                score = 4
-                reasons.append(f"✅ Bearish Pin Bar - ظل علوي {upper_shadow:.5f} > {body * 2:.5f}")
-        
-        # 3.4 Inside Bar
-        if (prev["high"] > current["high"] and prev["low"] < current["low"]):
-            if not pattern:
-                pattern = "INSIDE_BAR"
-                score = 2
-                reasons.append("✅ Inside Bar - شمعة داخل نطاق سابق")
-    
-    # 3.5 Breakout (محسّن - استبعاد الشمعة الحالية)
-    resistance = df.iloc[:-1]["high"].tail(5).max()
-    support = df.iloc[:-1]["low"].tail(5).min()
-    
-    if current["close"] > resistance and current["close"] > current["open"]:
-        if not pattern or score < 3:
-            pattern = "BREAKOUT_BULLISH"
-            score = max(score, 3)
-            reasons.append(f"✅ اختراق مقاومة: {current['close']:.5f} > {resistance:.5f}")
-    
-    elif current["close"] < support and current["close"] < current["open"]:
-        if not pattern or score < 3:
-            pattern = "BREAKOUT_BEARISH"
-            score = max(score, 3)
-            reasons.append(f"✅ اختراق دعم: {current['close']:.5f} < {support:.5f}")
-    
-    return pattern, score, max_score, reasons
-
-# =============================================
-# المرحلة 4: الدعم والمقاومة (محسّن مع Pivot Points)
-# =============================================
-def support_resistance_analysis(df, last):
-    """المرحلة 4: تحليل الدعم والمقاومة مع وزن 20%"""
-    reasons = []
-    score = 0
-    max_score = 4
-    
-    pivots_high, pivots_low = find_pivot_points(df, window=5)
-    
-    recent_pivot_high = pivots_high[-1]["price"] if pivots_high else df["high"].tail(20).max()
-    recent_pivot_low = pivots_low[-1]["price"] if pivots_low else df["low"].tail(20).min()
-    
-    range_mid = (recent_pivot_high + recent_pivot_low) / 2
-    range_width = recent_pivot_high - recent_pivot_low
-    
-    if last["close"] >= recent_pivot_high * 0.98:
-        if last["close"] > last["open"]:
-            reasons.append("⚠️ شراء عند مقاومة قوية - غير موصى به")
-            score -= 2
-        else:
-            reasons.append("⚠️ السعر عند مقاومة قوية")
-            score -= 1
-    
-    if last["close"] <= recent_pivot_low * 1.02:
-        if last["close"] < last["open"]:
-            reasons.append("⚠️ بيع عند دعم قوي - غير موصى به")
-            score -= 2
-        else:
-            reasons.append("⚠️ السعر عند دعم قوي")
-            score -= 1
-    
-    if abs(last["close"] - range_mid) < range_width * 0.1:
-        reasons.append("⚠️ السعر في منتصف النطاق - غير موصى به")
-        score -= 1
-    
-    if last["close"] <= recent_pivot_low * 1.03:
-        score += 2
-        reasons.append(f"✅ السعر قرب الدعم: {recent_pivot_low:.5f}")
-    elif last["close"] >= recent_pivot_high * 0.97:
-        score += 2
-        reasons.append(f"✅ السعر قرب المقاومة: {recent_pivot_high:.5f}")
-    else:
-        score += 1
-        reasons.append("✅ السعر في منطقة مناسبة")
-    
-    score = max(0, score)
-    
-    return score, max_score, reasons
-
-# =============================================
-# المرحلة 5: تأكيد المؤشرات (محسّن)
-# =============================================
-def indicator_confirmation(df, last, direction):
-    """المرحلة 5: تأكيد المؤشرات مع وزن 25%"""
-    reasons = []
-    score = 0
-    max_score = 5
-    
-    rsi_score = 0
-    rsi_rising = last["rsi"] > df.iloc[-2]["rsi"]
-    
-    if direction == "BULLISH":
-        if 55 <= last["rsi"] <= 70 and rsi_rising:
-            rsi_score = 2.5
-            reasons.append(f"✅ RSI صاعد وداعم للشراء: {last['rsi']:.1f}")
-        elif 55 <= last["rsi"] <= 70:
-            rsi_score = 2
-            reasons.append(f"✅ RSI داعم للشراء: {last['rsi']:.1f}")
-        elif 45 < last["rsi"] < 55:
-            rsi_score = 1
-            reasons.append(f"✅ RSI محايد: {last['rsi']:.1f}")
-        elif last["rsi"] < 35:
-            rsi_score = 1.5
-            reasons.append(f"⚠️ RSI منخفض جداً: {last['rsi']:.1f} (احتمال ارتداد)")
-        else:
-            reasons.append(f"⚠️ RSI غير داعم: {last['rsi']:.1f}")
-    else:
-        if 30 <= last["rsi"] <= 45 and not rsi_rising:
-            rsi_score = 2.5
-            reasons.append(f"✅ RSI هابط وداعم للبيع: {last['rsi']:.1f}")
-        elif 30 <= last["rsi"] <= 45:
-            rsi_score = 2
-            reasons.append(f"✅ RSI داعم للبيع: {last['rsi']:.1f}")
-        elif 45 < last["rsi"] < 55:
-            rsi_score = 1
-            reasons.append(f"✅ RSI محايد: {last['rsi']:.1f}")
-        elif last["rsi"] > 70:
-            rsi_score = 1.5
-            reasons.append(f"⚠️ RSI مرتفع جداً: {last['rsi']:.1f} (احتمال ارتداد)")
-        else:
-            reasons.append(f"⚠️ RSI غير داعم: {last['rsi']:.1f}")
-    
-    macd_score = 0
-    macd_rising = last["macd"] > df.iloc[-2]["macd"]
-    
-    if direction == "BULLISH" and last["macd"] > last["macd_signal"] and macd_rising:
-        macd_score = 2.5
-        reasons.append(f"✅ MACD صاعد ومتسارع: {last['macd']:.5f} > {last['macd_signal']:.5f}")
-    elif direction == "BULLISH" and last["macd"] > last["macd_signal"]:
-        macd_score = 2
-        reasons.append(f"✅ MACD صاعد: {last['macd']:.5f} > {last['macd_signal']:.5f}")
-    elif direction == "BEARISH" and last["macd"] < last["macd_signal"] and not macd_rising:
-        macd_score = 2.5
-        reasons.append(f"✅ MACD هابط ومتسارع: {last['macd']:.5f} < {last['macd_signal']:.5f}")
-    elif direction == "BEARISH" and last["macd"] < last["macd_signal"]:
-        macd_score = 2
-        reasons.append(f"✅ MACD هابط: {last['macd']:.5f} < {last['macd_signal']:.5f}")
-    else:
-        reasons.append(f"⚠️ MACD غير متوافق مع الاتجاه")
-    
-    bb_score = 0
-    if direction == "BULLISH" and last["close"] < last["bb_mid"]:
-        bb_score = 1
-        reasons.append(f"✅ السعر تحت منتصف البولينجر: {last['close']:.5f} < {last['bb_mid']:.5f}")
-    elif direction == "BEARISH" and last["close"] > last["bb_mid"]:
-        bb_score = 1
-        reasons.append(f"✅ السعر فوق منتصف البولينجر: {last['close']:.5f} > {last['bb_mid']:.5f}")
-    else:
-        reasons.append(f"⚠️ البولينجر غير داعم")
-    
-    candle_score = 0
-    avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
-    body = abs(last["close"] - last["open"])
-    body_ratio = body / avg_body if avg_body > 0 else 0
-    
-    if body_ratio >= 1.5:
-        candle_score = 1
-        reasons.append(f"✅ شمعة قوية: {body_ratio:.1f}x المتوسط")
-    elif body_ratio >= 1.0:
-        candle_score = 0.5
-        reasons.append(f"✅ شمعة متوسطة: {body_ratio:.1f}x المتوسط")
-    else:
-        reasons.append(f"⚠️ شمعة ضعيفة: {body_ratio:.1f}x المتوسط")
-    
-    score = rsi_score + macd_score + bb_score + candle_score
-    
-    return score, max_score, reasons
-
-# =============================================
-# المرحلة 6: حساب القوة (محسّن - 100%)
-# =============================================
-def calculate_strength(direction, trend_score, pa_score, sr_score, ind_score):
-    """المرحلة 6: حساب قوة الإشارة بالأوزان المحددة (مجموع 100%)"""
-    
-    weights = {
-        'trend': 0.30,
-        'price_action': 0.25,
-        'support_resistance': 0.20,
-        'indicators': 0.25
-    }
-    
-    weighted_score = (
-        (trend_score / 5) * weights['trend'] +
-        (pa_score / 5) * weights['price_action'] +
-        (sr_score / 4) * weights['support_resistance'] +
-        (ind_score / 5) * weights['indicators']
-    ) * 100
-    
-    return int(weighted_score)
-
-# =============================================
 # الدالة الرئيسية المحسنة
 # =============================================
 def analyze_market(pair):
-    """تحليل السوق باستخدام نظام المراحل الست مع فريمات متعددة"""
+    """تحليل السوق باستخدام جميع الفلاتر المحسنة"""
     try:
         print(f"\n{'=' * 50}")
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
+        # =============================================
+        # التحسين 1: فلتر الأخبار
+        # =============================================
+        print("\n📰 التحسين 1: فحص الأخبار الاقتصادية...")
+        if not check_news_impact(pair):
+            print("❌ توجد أخبار مؤثرة - انتظار")
+            return {
+                "signal": "WAIT",
+                "strength": 0,
+                "duration": 0,
+                "price": 0,
+                "reason": "توجد أخبار اقتصادية مؤثرة - انتظار",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
+        print("✅ لا توجد أخبار مؤثرة")
+        
+        # =============================================
+        # التحليل متعدد الفريمات
+        # =============================================
         print("\n📊 التحليل متعدد الفريمات...")
         df, df_5m, direction_5m = multi_timeframe_analysis(pair)
         
@@ -532,25 +608,17 @@ def analyze_market(pair):
             print(f"❌ فشل جلب البيانات لـ {pair}")
             return None
         
-        if len(df) < 50:
+        if len(df) < 100:
             print(f"❌ بيانات غير كافية لتحليل {pair}")
             return None
         
         if direction_5m == "NEUTRAL":
             print("⚠️ اتجاه 5 دقائق محايد - انتظار")
-            last = df.iloc[-1]
             return {
                 "signal": "WAIT",
                 "strength": 0,
                 "duration": 0,
-                "price": float(last["close"]),
-                "ema9": 0,
-                "ema21": 0,
-                "rsi": 0,
-                "macd": 0,
-                "macd_signal": 0,
-                "adx": 0,
-                "atr": 0,
+                "price": float(df.iloc[-1]["close"]),
                 "reason": "اتجاه 5 دقائق محايد",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
@@ -558,27 +626,49 @@ def analyze_market(pair):
         
         print(f"✅ اتجاه 5 دقائق: {direction_5m}")
         
-        last = df.iloc[-1]
+        # =============================================
+        # التحسين 3: انتظار إغلاق الشمعة
+        # =============================================
+        print("\n⏳ التحسين 3: التحقق من إغلاق الشمعة...")
+        candle_ready, candle_msg = wait_for_candle_close(df)
+        if not candle_ready:
+            print(f"❌ {candle_msg}")
+            return {
+                "signal": "WAIT",
+                "strength": 0,
+                "duration": 0,
+                "price": float(df.iloc[-1]["close"]),
+                "reason": candle_msg,
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
+        print(f"✅ {candle_msg}")
         
         print("🔄 حساب المؤشرات الفنية على 1 دقيقة...")
         try:
+            # المؤشرات الأساسية
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
             df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
+            df["ema100"] = ta.trend.EMAIndicator(close=df["close"], window=100).ema_indicator()
             df["ema200"] = ta.trend.EMAIndicator(close=df["close"], window=200).ema_indicator()
             df["rsi"] = ta.momentum.RSIIndicator(close=df["close"], window=14).rsi()
             
+            # MACD
             macd = ta.trend.MACD(df["close"])
             df["macd"] = macd.macd()
             df["macd_signal"] = macd.macd_signal()
             
+            # ADX
             adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
             df["adx"] = adx.adx()
             
+            # Bollinger Bands
             bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
             df["bb_high"] = bb.bollinger_hband()
             df["bb_low"] = bb.bollinger_lband()
             df["bb_mid"] = bb.bollinger_mavg()
             
+            # ATR
             atr = ta.volatility.AverageTrueRange(
                 high=df["high"],
                 low=df["low"],
@@ -608,9 +698,27 @@ def analyze_market(pair):
         all_reasons = []
         failed_reasons = []
         
-        # المرحلة 1: فلترة السوق
+        # =============================================
+        # المرحلة 1: فلترة السوق (محسنة)
+        # =============================================
         print("\n🔍 المرحلة 1: فلترة السوق")
+        
+        # 1.1 ADX و ATR
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_percent)
+        
+        # 1.2 فلتر حجم التداول (التحسين 2)
+        volume_ok, volume_msg = volume_filter(df, last)
+        filter_reasons.append(volume_msg)
+        if not volume_ok:
+            failed.append(volume_msg)
+            filter_passed = False
+        
+        # 1.3 فلتر Bollinger Width (التحسين 6)
+        bb_ok, bb_msg = bollinger_width_filter(df, last)
+        filter_reasons.append(bb_msg)
+        if not bb_ok:
+            failed.append(bb_msg)
+            filter_passed = False
         
         for reason in filter_reasons:
             print(f"  {reason}")
@@ -640,103 +748,7 @@ def analyze_market(pair):
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
         
-        # المرحلة 2: تحديد الاتجاه
-        print("\n🔍 المرحلة 2: تحديد الاتجاه (وزن 30%)")
-        direction, trend_score, trend_max, trend_reasons = trend_analysis(df, last, last["atr"])
-        
-        for reason in trend_reasons:
-            print(f"  {reason}")
-        
-        print(f"📊 نقاط الاتجاه: {trend_score}/{trend_max}")
-        all_reasons.extend(trend_reasons)
-        
-        if direction != direction_5m and direction != "NEUTRAL":
-            print(f"⚠️ اختلاف الاتجاه: 1m={direction}, 5m={direction_5m}")
-            return {
-                "signal": "WAIT",
-                "strength": 0,
-                "duration": 0,
-                "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5),
-                "ema21": round(last["ema21"], 5),
-                "rsi": round(last["rsi"], 2),
-                "macd": round(last["macd"], 5),
-                "macd_signal": round(last["macd_signal"], 5),
-                "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": f"اختلاف الاتجاه: 1m={direction}, 5m={direction_5m}",
-                "timestamp": datetime.now().isoformat(),
-                "pair": pair
-            }
-        
-        if direction == "NEUTRAL":
-            print("⚠️ اتجاه غير واضح")
-            return {
-                "signal": "WAIT",
-                "strength": 0,
-                "duration": 0,
-                "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5),
-                "ema21": round(last["ema21"], 5),
-                "rsi": round(last["rsi"], 2),
-                "macd": round(last["macd"], 5),
-                "macd_signal": round(last["macd_signal"], 5),
-                "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": "الاتجاه غير واضح (نقاط الاتجاه منخفضة)",
-                "timestamp": datetime.now().isoformat(),
-                "pair": pair
-            }
-        
-        print(f"✅ الاتجاه: {direction}")
-        
-        # المرحلة 3: Price Action
-        print("\n🔍 المرحلة 3: تحليل Price Action (وزن 25%)")
-        pattern, pa_score, pa_max, pa_reasons = price_action_analysis(df, last)
-        
-        for reason in pa_reasons:
-            print(f"  {reason}")
-        
-        print(f"📊 نقاط Price Action: {pa_score}/{pa_max}")
-        all_reasons.extend(pa_reasons)
-        
-        # المرحلة 4: الدعم والمقاومة
-        print("\n🔍 المرحلة 4: تحليل الدعم والمقاومة (وزن 20%)")
-        sr_score, sr_max, sr_reasons = support_resistance_analysis(df, last)
-        
-        for reason in sr_reasons:
-            print(f"  {reason}")
-        
-        print(f"📊 نقاط الدعم والمقاومة: {sr_score}/{sr_max}")
-        all_reasons.extend(sr_reasons)
-        
-        # المرحلة 5: تأكيد المؤشرات
-        print("\n🔍 المرحلة 5: تأكيد المؤشرات (وزن 25%)")
-        ind_score, ind_max, ind_reasons = indicator_confirmation(df, last, direction)
-        
-        for reason in ind_reasons:
-            print(f"  {reason}")
-        
-        print(f"📊 نقاط المؤشرات: {ind_score:.1f}/{ind_max}")
-        all_reasons.extend(ind_reasons)
-        
-        # المرحلة 6: حساب القوة
-        print("\n🔍 المرحلة 6: حساب قوة الإشارة")
-        
-        strength = calculate_strength(
-            direction,
-            trend_score,
-            pa_score,
-            sr_score,
-            ind_score
-        )
-        
-        print(f"📊 قوة الإشارة: {strength}%")
-        
-        # تحديد الإشارة
-        if strength >= 90:
-            signal = "CALL" if direction == "BULLISH" else "PUT"
-            duration = 30
-            quality = "قوية جداً"
-        elif strength >= 80:
-            signal = "CALL" if direction == "BULLISH" else
+        # =============================================
+        # المرحلة 2: تحديد الاتجاه (محسن مع EMA100 و EMA200)
+        # =============================================
+        print("\n🔍 المرحلة 2
