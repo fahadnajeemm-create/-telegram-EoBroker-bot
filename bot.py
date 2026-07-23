@@ -101,28 +101,41 @@ def callback(call):
 
         analysis = analyze_market(pair)
 
-        if analysis:
-            if analysis["signal"] == "CALL":
-                signal = "🟢 شراء (CALL)"
-            elif analysis["signal"] == "PUT":
-                signal = "🔴 بيع (PUT)"
-            else:
-                signal = "🟡 انتظار"
+if analysis:
 
-            bot.send_message(
-                chat_id,
-                f"💱 الزوج: {pair}\n\n"
-                f"💰 السعر الحالي: {analysis['price']}\n\n"
-                f"📊 الإشارة: {signal}\n"
-                f"🔥 قوة الإشارة: {analysis['strength']}%\n\n"
-                f"📈 EMA9 : {analysis['ema9']}\n"
-                f"📉 EMA21 : {analysis['ema21']}\n"
-                f"📊 RSI : {analysis['rsi']}\n"
-                f"📊 MACD : {analysis['macd']}\n"
-                f"📊 ADX : {analysis['adx']}\n\n"
-                f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
-                f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
-            )
+    if analysis["signal"] == "WAIT":
+        bot.send_message(
+            chat_id,
+            f"⏸ لا توجد فرصة قوية حالياً.\n\n"
+            f"السبب:\n{analysis['reason']}"
+        )
+        return
+
+    if analysis["signal"] == "CALL":
+        signal = "🟢 شراء (CALL)"
+    else:
+        signal = "🔴 بيع (PUT)"
+
+    bot.send_message(
+        chat_id,
+        f"💱 الزوج: {pair}\n\n"
+        f"💰 السعر الحالي: {analysis['price']}\n\n"
+        f"📊 الإشارة: {signal}\n"
+        f"🔥 قوة الإشارة: {analysis['strength']}%\n\n"
+        f"📈 EMA9 : {analysis['ema9']}\n"
+        f"📉 EMA21 : {analysis['ema21']}\n"
+        f"📊 RSI : {analysis['rsi']}\n"
+        f"📊 MACD : {analysis['macd']}\n"
+        f"📊 ADX : {analysis['adx']}\n\n"
+        f"⏱ مدة الصفقة: {analysis['duration']} ثانية\n"
+        f"⏰ الوقت: {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M')}"
+    )
+
+else:
+    bot.send_message(
+        chat_id,
+        f"❌ حدث خطأ أثناء تحليل الزوج {pair}"
+    )
         else:
             bot.send_message(
                 chat_id,
