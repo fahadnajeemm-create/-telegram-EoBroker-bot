@@ -22,14 +22,27 @@ user_pair = {}
 user_last_signal = {}  # لمنع الطلبات المتكررة
 
 # =============================================
-# التحسين 1: دالة للتحقق من صحة البيانات
+# التحسين 1: دالة للتحقق من صحة البيانات (مُحسّنة)
 # =============================================
 def validate_analysis(analysis):
     """التحقق من اكتمال بيانات التحليل"""
     if not analysis or not isinstance(analysis, dict):
         return False
-    required_keys = ['signal', 'price', 'strength', 'ema9', 'ema21', 'rsi', 'macd', 'adx', 'duration', 'reason']
-    return all(key in analysis for key in required_keys)
+    
+    # المفاتيح الأساسية المطلوبة
+    required_keys = ['signal', 'price', 'strength', 'duration']
+    
+    # التحقق من وجود المفاتيح الأساسية
+    if not all(key in analysis for key in required_keys):
+        return False
+    
+    # إذا كانت الإشارة WAIT، نحتاج فقط إلى reason
+    if analysis.get('signal') == 'WAIT':
+        return 'reason' in analysis
+    
+    # للإشارات CALL/PUT، نحتاج إلى جميع المؤشرات
+    indicator_keys = ['ema9', 'ema21', 'rsi', 'macd', 'adx', 'reason']
+    return all(key in analysis for key in indicator_keys)
 
 # =============================================
 # التحسين 2: دالة معدل الطلبات مع رسائل محسنة
@@ -107,15 +120,13 @@ def main_menu(chat_id):
         safe_send_message(chat_id, "❌ حدث خطأ في القائمة الرئيسية")
 
 # =============================================
-# التحسين 5: عرض إحصائيات المستخدم (تم إصلاح الخطأ)
+# التحسين 5: عرض إحصائيات المستخدم
 # =============================================
 def show_stats(chat_id):
     """عرض إحصائيات المستخدم"""
     try:
-        # حساب الإحصائيات من البيانات المتاحة
-        total_signals = len(user_last_signal)  # عدد الطلبات
+        total_signals = len(user_last_signal)
         
-        # تم إزالة النص العربي الذي كان يسبب المشكلة
         stats_text = f"""
 📊 *إحصائياتك الشخصية*
 
@@ -134,16 +145,36 @@ def show_stats(chat_id):
         safe_send_message(chat_id, "❌ حدث خطأ في عرض الإحصائيات")
 
 # =============================================
-# التحسين 6: دالة تنسيق رسالة الإشارة
+# التحسين 6: دالة تنسيق رسالة الإشارة (مُحسّنة)
 # =============================================
 def format_signal_message(pair, analysis):
     """تنسيق رسالة الإشارة بشكل محسن"""
     try:
-        # تحديد نوع الإشارة
-        if analysis["signal"] == "CALL":
+        signal_type = analysis.get("signal", "WAIT")
+        
+        # إذا كانت الإشارة WAIT
+        if signal_type == "WAIT":
+            message = f"""
+⏸ *لا توجد فرصة قوية حالياً*
+
+💱 *الزوج:* {pair}
+💰 *السعر:* {analysis.get('price', 'N/A')}
+
+📊 *RSI:* {analysis.get('rsi', 'N/A')}
+📊 *ADX:* {analysis.get('adx', 'N/A')}
+
+💡 *السبب:*
+{analysis.get('reason', 'لا يوجد سبب محدد')}
+
+⚠️ *تنبيه:* هذا ليس نصيحة استثمارية
+"""
+            return message
+
+        # للإشارات CALL/PUT
+        if signal_type == "CALL":
             signal = "🟢 شراء (CALL)"
             emoji = "📈"
-        elif analysis["signal"] == "PUT":
+        elif signal_type == "PUT":
             signal = "🔴 بيع (PUT)"
             emoji = "📉"
         else:
@@ -230,7 +261,7 @@ def help_command(message):
     """معالج أمر المساعدة"""
     try:
         help_text = f"""
-🤖 *بوت الإشارات المالية v1.0*
+🤖 *بوت الإشارات المالية v2.0*
 
 *📋 الأوامر المتاحة:*
 /start - بدء البوت واختيار اللغة
@@ -245,10 +276,13 @@ def help_command(message):
 {", ".join(PAIRS)}
 
 *📈 المؤشرات المستخدمة:*
-• EMA9 & EMA21 - المتوسطات المتحركة
+• EMA9, EMA21, EMA100, EMA200
 • RSI - مؤشر القوة النسبية
 • MACD - مؤشر الماكد
 • ADX - مؤشر الاتجاه
+• Stochastic - لتأكيد الزخم
+• SuperTrend - فلتر اتجاه إضافي
+• Bollinger Bands - مع فلتر العرض
 
 *⚠️ تنبيه مهم:*
 هذا البوت لأغراض تعليمية فقط
@@ -298,9 +332,7 @@ def callback(call):
         elif call.data == "pairs":
             keyboard = types.InlineKeyboardMarkup(row_width=2)
             
-            # عرض الأزواج المتاحة
             for pair in PAIRS:
-                # وضع علامة على الزوج المحدد حالياً
                 label = f"✅ {pair}" if user_pair.get(chat_id) == pair else pair
                 keyboard.add(
                     types.InlineKeyboardButton(
@@ -373,23 +405,12 @@ def callback(call):
                     analysis = analyze_market(pair)
                     
                     # حذف رسالة الانتظار
-                    bot.delete_message(chat_id, waiting_msg.message_id)
+                    try:
+                        bot.delete_message(chat_id, waiting_msg.message_id)
+                    except:
+                        pass
                     
                     if analysis and validate_analysis(analysis):
-                        # معالجة حالة الانتظار
-                        if analysis["signal"] == "WAIT":
-                            bot.send_message(
-                                chat_id,
-                                f"⏸ *لا توجد فرصة قوية حالياً*\n\n"
-                                f"💱 *الزوج:* {pair}\n"
-                                f"💰 *السعر:* {analysis.get('price', 'N/A')}\n\n"
-                                f"📊 *RSI:* {analysis.get('rsi', 'N/A')}\n"
-                                f"📊 *ADX:* {analysis.get('adx', 'N/A')}\n\n"
-                                f"💡 *السبب:*\n{analysis.get('reason', 'لا يوجد سبب محدد')}",
-                                parse_mode='Markdown'
-                            )
-                            return
-
                         # تنسيق وإرسال الإشارة
                         signal_message = format_signal_message(pair, analysis)
                         if signal_message:
