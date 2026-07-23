@@ -199,21 +199,29 @@ def analyze_market(pair):
         else:
             score_sell += 30
             reasons.append(f"✅ EMA هابط (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
-        
         # 2. تحليل RSI
-        if last["rsi"] > 60:
-            score_buy += 15
-            reasons.append(f"✅ RSI قوي = {last['rsi']:.1f}")
-        elif last["rsi"] > 55:
-            score_buy += 10
-            reasons.append(f"✅ RSI = {last['rsi']:.1f}")
-        elif last["rsi"] < 40:
-            score_sell += 15
-            reasons.append(f"✅ RSI ضعيف = {last['rsi']:.1f}")
-        elif last["rsi"] < 45:
-            score_sell += 10
-            reasons.append(f"✅ RSI = {last['rsi']:.1f}")
-        
+if 55 <= last["rsi"] <= 70:
+    score_buy += 20
+    reasons.append(f"✅ RSI داعم للشراء = {last['rsi']:.1f}")
+
+elif 35 <= last["rsi"] <= 45:
+    score_sell += 20
+    reasons.append(f"✅ RSI داعم للبيع = {last['rsi']:.1f}")
+
+elif 45 < last["rsi"] < 55:
+    print("⚠️ RSI محايد")
+    return {
+        "signal": "WAIT",
+        "reason": "RSI محايد"
+    }
+
+elif last["rsi"] < 35:
+    score_sell += 10
+    reasons.append(f"⚠️ RSI منخفض جداً = {last['rsi']:.1f}")
+
+elif last["rsi"] > 70:
+    score_buy += 10
+    reasons.append(f"⚠️ RSI مرتفع جداً = {last['rsi']:.1f}")
         # 3. تحليل MACD
         if last["macd"] > last["macd_signal"]:
             score_buy += 20
