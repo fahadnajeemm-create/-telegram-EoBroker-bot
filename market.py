@@ -358,7 +358,8 @@ def display_signal_formatted(result):
     print(f"💱 الزوج: {result['pair']}")
     print(f"💰 السعر الحالي: {result['price']:.5f}")
     signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
-    signal_text = "شراء (CALL)" if result['signal'] == "CALL' else "بيع (PUT)"
+    # ✅ تم تصحيح الخطأ هنا - إزالة الاقتباس الزائد
+    signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"
     print(f"📊 الإشارة: {signal_emoji} {signal_text}")
     print(f"🔥 قوة الإشارة: {result['strength']}%")
     print("-" * 50)
