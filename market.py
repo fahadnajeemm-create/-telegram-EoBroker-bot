@@ -33,8 +33,6 @@ def get_candles(pair):
             pair.replace("/", ""),
             pair.replace("/", "").upper(),
             pair.split("/")[0] + pair.split("/")[1],
-            "XAUUSD",
-            "GOLD",
         ]
         
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
@@ -42,11 +40,7 @@ def get_candles(pair):
         
         for symbol in symbols_to_try:
             print(f"🔄 محاولة جلب البيانات بالرمز: {symbol}")
-            
-            if symbol in ["XAUUSD", "GOLD"]:
-                url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=200&apikey={api_key}"
-            else:
-                url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
+            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
             
             try:
                 response = requests.get(url, timeout=10)
@@ -101,35 +95,44 @@ def market_filter(df, last, atr_avg):
     """المرحلة 1: فلترة السوق - التحقق من ظروف السوق المناسبة"""
     reasons = []
     passed = True
+    failed_reasons = []
     
     # 1.1 التحقق من ADX (قوة الاتجاه)
     if last["adx"] < 25:
-        reasons.append(f"⚠️ ADX ضعيف: {last['adx']:.1f} (يحتاج ≥ 25)")
+        msg = f"⚠️ ADX ضعيف: {last['adx']:.1f} (يحتاج ≥ 25)"
+        reasons.append(msg)
+        failed_reasons.append(msg)
         passed = False
     
     # 1.2 التحقق من ATR (التقلب الكافي)
     if last["atr"] < atr_avg * 0.7:
-        reasons.append(f"⚠️ التقلب منخفض: ATR {last['atr']:.5f} < {atr_avg * 0.7:.5f}")
+        msg = f"⚠️ التقلب منخفض: ATR {last['atr']:.5f} < {atr_avg * 0.7:.5f}"
+        reasons.append(msg)
+        failed_reasons.append(msg)
         passed = False
     
     # 1.3 التحقق من عدم وجود شمعة انفجارية
     avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
     body = abs(last["close"] - last["open"])
     if body > avg_body * 2:
-        reasons.append(f"⚠️ شمعة انفجارية: الجسم {body:.5f} > {avg_body * 2:.5f}")
+        msg = f"⚠️ شمعة انفجارية: الجسم {body:.5f} > {avg_body * 2:.5f}"
+        reasons.append(msg)
+        failed_reasons.append(msg)
         passed = False
     
     # 1.4 التحقق من عدم وجود تذبذب قوي
     candle_range = last["high"] - last["low"]
     avg_range = (df["high"] - df["low"]).tail(20).mean()
     if candle_range > avg_range * 1.8:
-        reasons.append(f"⚠️ تذبذب قوي: المدى {candle_range:.5f} > {avg_range * 1.8:.5f}")
+        msg = f"⚠️ تذبذب قوي: المدى {candle_range:.5f} > {avg_range * 1.8:.5f}"
+        reasons.append(msg)
+        failed_reasons.append(msg)
         passed = False
     
     if passed:
         reasons.append("✅ اجتازت فلترة السوق")
     
-    return passed, reasons
+    return passed, reasons, failed_reasons
 
 # =============================================
 # المرحلة 2: تحديد الاتجاه
@@ -305,6 +308,9 @@ def support_resistance_analysis(df, last):
         score += 1
         reasons.append("✅ السعر في منطقة مناسبة")
     
+    # التأكد من أن النقاط لا تقل عن 0
+    score = max(0, score)
+    
     return score, max_score, reasons
 
 # =============================================
@@ -381,12 +387,9 @@ def indicator_confirmation(df, last, direction):
         reasons.append(f"⚠️ شمعة ضعيفة: {body_ratio:.1f}x المتوسط")
     
     score = rsi_score + macd_score + bb_score + candle_score
-    max_score = 4  # RSI(2) + MACD(2) + BB(1) + Candle(1) = 6 but we scale to 4
+    max_score = 4
     
-    # نعيد التقييم بالنسبة المئوية
-    score_percent = (score / 6) * 4  # تحويل إلى مقياس 4 نقاط
-    
-    return score_percent, max_score, reasons
+    return score, max_score, reasons
 
 # =============================================
 # المرحلة 6: حساب القوة بالأوزان
@@ -479,19 +482,24 @@ def analyze_market(pair):
         print(f"📊 RSI: {last['rsi']:.2f}")
         
         all_reasons = []
+        failed_reasons = []
         
         # =============================================
         # المرحلة 1: فلترة السوق
         # =============================================
         print("\n🔍 المرحلة 1: فلترة السوق")
-        filter_passed, filter_reasons = market_filter(df, last, atr_avg)
+        filter_passed, filter_reasons, failed = market_filter(df, last, atr_avg)
         
         for reason in filter_reasons:
             print(f"  {reason}")
         
         if not filter_passed:
             print("❌ لم تجتز فلترة السوق")
-            return {
+            # عرض أسباب الفشل بشكل مفصل
+            fail_text = "فشل فلترة السوق:\n" + "\n".join(failed)
+            
+            # تجهيز النتيجة مع أسباب الفشل
+            result = {
                 "signal": "WAIT",
                 "strength": 0,
                 "duration": 0,
@@ -503,11 +511,12 @@ def analyze_market(pair):
                 "macd_signal": round(last["macd_signal"], 5),
                 "adx": round(last["adx"], 2),
                 "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": "فشل فلترة السوق",
-                "details": filter_reasons[:3],
+                "reason": fail_text,
+                "failed_checks": failed,
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
+            return result
         
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
@@ -538,7 +547,7 @@ def analyze_market(pair):
                 "macd_signal": round(last["macd_signal"], 5),
                 "adx": round(last["adx"], 2),
                 "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": "اتجاه غير واضح",
+                "reason": "الاتجاه غير واضح (نقاط الاتجاه منخفضة)",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
@@ -571,7 +580,7 @@ def analyze_market(pair):
                 "macd_signal": round(last["macd_signal"], 5),
                 "adx": round(last["adx"], 2),
                 "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": "لا يوجد نمط Price Action",
+                "reason": "لا يوجد نمط Price Action واضح",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
@@ -662,10 +671,9 @@ def analyze_market(pair):
             "pattern": pattern,
             "direction": direction,
             "reason": f"{signal} - {signal_quality} ({strength}%)",
-            "details": all_reasons[:8],  # أهم 8 أسباب
+            "details": all_reasons[:8],
             "timestamp": datetime.now().isoformat(),
             "pair": pair,
-            # إضافة تفاصيل المراحل
             "stage_scores": {
                 "trend": f"{trend_score}/{trend_max}",
                 "price_action": f"{pa_score}/{pa_max}",
@@ -700,6 +708,20 @@ def display_signal_formatted(result):
     if result['signal'] == "WAIT":
         print(f"⏸ الحالة: انتظار")
         print(f"📝 السبب: {result.get('reason', 'لا يوجد سبب')}")
+        
+        # عرض المؤشرات الحالية
+        print("-" * 50)
+        print(f"📊 RSI: {result['rsi']:.2f}")
+        print(f"📊 ADX: {result['adx']:.1f}")
+        print(f"📊 EMA9: {result['ema9']:.5f}")
+        print(f"📊 EMA21: {result['ema21']:.5f}")
+        
+        # عرض الأسباب المفصلة إن وجدت
+        if 'failed_checks' in result and result['failed_checks']:
+            print("-" * 50)
+            print("📝 أسباب الفشل:")
+            for reason in result['failed_checks']:
+                print(f"  {reason}")
     else:
         signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
         signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"
@@ -708,46 +730,24 @@ def display_signal_formatted(result):
         print(f"📐 النمط: {result.get('pattern', 'غير محدد')}")
         print(f"🧭 الاتجاه: {result.get('direction', 'غير محدد')}")
         print(f"⏱ المدة: {result['duration']} ثانية")
-    
-    print("-" * 50)
-    print(f"📈 EMA9  : {result['ema9']:.5f}")
-    print(f"📉 EMA21 : {result['ema21']:.5f}")
-    print(f"📊 RSI   : {result['rsi']:.2f}")
-    print(f"📊 MACD  : {result['macd']:.4f}")
-    print(f"📊 ADX   : {result['adx']:.1f}")
-    if 'atr' in result and result['atr'] > 0:
-        print(f"📊 ATR   : {result['atr']:.5f}")
-    
-    # عرض نقاط المراحل
-    if 'stage_scores' in result:
+        
         print("-" * 50)
-        print("📊 تفاصيل التقييم:")
-        for stage, score in result['stage_scores'].items():
+        print(f"📈 EMA9  : {result['ema9']:.5f}")
+        print(f"📉 EMA21 : {result['ema21']:.5f}")
+        print(f"📊 RSI   : {result['rsi']:.2f}")
+        print(f"📊 MACD  : {result['macd']:.4f}")
+        print(f"📊 ADX   : {result['adx']:.1f}")
+        if 'atr' in result and result['atr'] > 0:
+            print(f"📊 ATR   : {result['atr']:.5f}")
+        
+        if 'stage_scores' in result:
+            print("-" * 50)
+            print("📊 تفاصيل التقييم:")
             stage_names = {
-                'trend': 'الاتجاه',
-                'price_action': 'Price Action',
-                'support_resistance': 'الدعم والمقاومة',
-                'indicators': 'المؤشرات'
+                'trend': 'الاتجاه (30%)',
+                'price_action': 'Price Action (25%)',
+                'support_resistance': 'الدعم والمقاومة (20%)',
+                'indicators': 'المؤشرات (20%)'
             }
-            print(f"  {stage_names.get(stage, stage)}: {score}")
-    
-    if result['signal'] != "WAIT" and 'details' in result:
-        print("-" * 50)
-        print("📝 أهم الأسباب:")
-        for reason in result['details'][:6]:
-            print(f"  {reason}")
-        if len(result.get('details', [])) > 6:
-            print(f"  ... و {len(result['details']) - 6} أسباب أخرى")
-    
-    print("=" * 50)
-
-def main():
-    """الوظيفة الرئيسية"""
-    if not TWELVE_API and not os.environ.get('TWELVE_API'):
-        print("⚠️ تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
-        print("يرجى تعيين المتغير TWELVE_API في ملف config.py أو كمتغير بيئي")
-        return
-    
-    pair = "XAU/USD"
-    result = analyze_market(pair)
-    display
+            for stage, score in result['stage_scores'].items():
+                print(f"  {stage_names.get(stage, stage)}
