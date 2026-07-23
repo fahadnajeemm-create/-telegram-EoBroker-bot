@@ -107,7 +107,7 @@ def main_menu(chat_id):
         safe_send_message(chat_id, "❌ حدث خطأ في القائمة الرئيسية")
 
 # =============================================
-# التحسين 5: عرض إحصائيات المستخدم
+# التحسين 5: عرض إحصائيات المستخدم (تم إصلاح الخطأ)
 # =============================================
 def show_stats(chat_id):
     """عرض إحصائيات المستخدم"""
@@ -115,6 +115,7 @@ def show_stats(chat_id):
         # حساب الإحصائيات من البيانات المتاحة
         total_signals = len(user_last_signal)  # عدد الطلبات
         
+        # تم إزالة النص العربي الذي كان يسبب المشكلة
         stats_text = f"""
 📊 *إحصائياتك الشخصية*
 
@@ -130,6 +131,7 @@ def show_stats(chat_id):
         safe_send_message(chat_id, stats_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Error in show_stats: {e}")
+        safe_send_message(chat_id, "❌ حدث خطأ في عرض الإحصائيات")
 
 # =============================================
 # التحسين 6: دالة تنسيق رسالة الإشارة
