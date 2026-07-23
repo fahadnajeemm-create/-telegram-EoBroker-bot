@@ -13,7 +13,6 @@ except ImportError:
 def get_price(pair):
     """الحصول على السعر الحالي"""
     try:
-        # استخدام نفس آلية جلب البيانات
         df = get_candles(pair)
         if df is not None and len(df) > 0:
             return float(df.iloc[-1]["close"])
@@ -31,28 +30,30 @@ def get_candles(pair):
         
         # قائمة بصيغ الرموز المختلفة للمحاولة
         symbols_to_try = [
-            pair,  # XAU/USD
-            pair.replace("/", ""),  # XAUUSD
-            pair.replace("/", "").upper(),  # XAUUSD
-            pair.split("/")[0] + pair.split("/")[1],  # XAUUSD
+            pair,
+            pair.replace("/", ""),
+            pair.replace("/", "").upper(),
+            pair.split("/")[0] + pair.split("/")[1],
+            "XAUUSD",
+            "GOLD",
         ]
         
-        # إزالة التكرارات
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
-        
         df = None
         
         for symbol in symbols_to_try:
             print(f"🔄 محاولة جلب البيانات بالرمز: {symbol}")
             
-            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
+            if symbol in ["XAUUSD", "GOLD"]:
+                url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1min&outputsize=200&apikey={api_key}"
+            else:
+                url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=200&apikey={api_key}"
             
             try:
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
                 
-                # التحقق من وجود بيانات
                 if "values" in data and data["values"]:
                     print(f"✅ نجح جلب البيانات بالرمز: {symbol}")
                     df = pd.DataFrame(data["values"])
@@ -62,6 +63,10 @@ def get_candles(pair):
                 else:
                     print(f"⚠️ لا توجد بيانات للرمز {symbol}")
                     
+            except requests.exceptions.Timeout:
+                print(f"⚠️ انتهت المهلة للرمز {symbol}")
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ خطأ في الطلب للرمز {symbol}: {e}")
             except Exception as e:
                 print(f"⚠️ فشل المحاولة للرمز {symbol}: {e}")
                 continue
@@ -75,14 +80,12 @@ def get_candles(pair):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # حذف القيم المفقودة
         df = df.dropna()
         
         if len(df) < 50:
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 50 على الأقل)")
             return None
         
-        # ✅ تصحيح: ترتيب البيانات من الأقدم إلى الأحدث بشكل صحيح
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair}")
         return df
@@ -100,7 +103,6 @@ def analyze_market(pair):
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # جلب بيانات الشموع
         df = get_candles(pair)
         if df is None:
             print(f"❌ فشل جلب البيانات لـ {pair}")
@@ -116,7 +118,6 @@ def analyze_market(pair):
         score_sell = 0
         reasons = []
         
-        # حساب المؤشرات الفنية
         print("🔄 حساب المؤشرات الفنية...")
         try:
             # EMA
@@ -135,11 +136,11 @@ def analyze_market(pair):
             adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
             df["adx"] = adx.adx()
             
-            # ✅ تصحيح: Bollinger Bands
+            # Bollinger Bands
             bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
             df["bb_high"] = bb.bollinger_hband()
             df["bb_low"] = bb.bollinger_lband()
-            df["bb_mid"] = bb.bollinger_mavg()  # ✅ تم التصحيح
+            df["bb_mid"] = bb.bollinger_mavg()
             
             # ATR
             atr = ta.volatility.AverageTrueRange(
@@ -155,7 +156,6 @@ def analyze_market(pair):
             print(f"❌ خطأ في حساب المؤشرات: {e}")
             return None
         
-        # حذف القيم المفقودة
         df = df.dropna()
         if len(df) == 0:
             print("❌ جميع القيم NaN بعد الحسابات")
@@ -167,27 +167,47 @@ def analyze_market(pair):
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
         
-        # متوسط ATR لآخر 20 شمعة
         atr_avg = df["atr"].tail(20).mean()
         
-        # ✅ تصحيح: فلتر التذبذب
+        # فلتر التذبذب
         if last["atr"] < atr_avg * 0.7:
             print("⚠️ السوق هادئ، تم تجاهل الإشارة")
             return {
                 "signal": "WAIT",
-                "reason": "السوق متذبذب"
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "السوق متذبذب (ATR منخفض)",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
             }
 
-        # ✅ تصحيح: فلتر القفزة السعرية
-        # متوسط حجم جسم آخر 10 شموع
+        # فلتر القفزة السعرية
         avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
-
-        # إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
         if body > avg_body * 2:
             print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
             return {
                 "signal": "WAIT",
-                "reason": "آخر شمعة قوية جداً، احتمال ارتداد"
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "آخر شمعة قوية جداً، احتمال ارتداد",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
             }
         
         print(f"📊 آخر سعر: {last['close']:.5f}")
@@ -213,7 +233,19 @@ def analyze_market(pair):
             print("⚠️ RSI محايد")
             return {
                 "signal": "WAIT",
-                "reason": "RSI محايد"
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "RSI محايد (بين 45-55)",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
             }
         elif last["rsi"] < 35:
             score_sell += 10
@@ -261,17 +293,59 @@ def analyze_market(pair):
             print("⚠️ تعادل بين مؤشرات الشراء والبيع")
             return {
                 "signal": "WAIT",
-                "reason": "تعادل المؤشرات"
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "تعادل المؤشرات (لا يوجد اتجاه واضح)",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
             }
 
         # فلتر آخر شمعة
         if signal == "CALL" and last["close"] < last["open"]:
             print("⚠️ آخر شمعة هابطة - تم تجاهل الشراء")
-            return None
+            return {
+                "signal": "WAIT",
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "آخر شمعة هابطة - تم تجاهل الشراء",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
 
         if signal == "PUT" and last["close"] > last["open"]:
             print("⚠️ آخر شمعة صاعدة - تم تجاهل البيع")
-            return None
+            return {
+                "signal": "WAIT",
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "آخر شمعة صاعدة - تم تجاهل البيع",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
         
         print(f"📊 نقاط الشراء: {score_buy}, نقاط البيع: {score_sell}")
         print(f"📊 الإشارة الأولية: {signal}")
@@ -325,7 +399,7 @@ def analyze_market(pair):
         elif signal == "PUT" and last["close"] < last["ema21"]:
             score += 1
         
-        # توافق آخر شمعتين - ✅ تم تصحيح المسافة البادئة
+        # توافق آخر شمعتين
         last2 = df.tail(2)
         if signal == "CALL":
             if (last2["close"] > last2["open"]).all():
@@ -334,7 +408,7 @@ def analyze_market(pair):
             if (last2["close"] < last2["open"]).all():
                 score += 1
         
-        # اتجاه EMA21 - ✅ تم تصحيح المسافة البادئة
+        # اتجاه EMA21
         ema21_slope = last["ema21"] - prev["ema21"]
         if signal == "CALL" and ema21_slope > 0:
             score += 1
@@ -345,12 +419,26 @@ def analyze_market(pair):
         strength = int((score / max_score) * 100)
         print(f"📊 نقاط القوة: {score}/{max_score} = {strength}%")
         
-        # خفض عتبة القوة للتجربة (يمكنك رفعها لاحقاً)
-        min_strength = 70  # تم التخفيض من 90 إلى 70 للتجربة
+        min_strength = 70
         
         if strength < min_strength:
             print(f"❌ تم تجاهل الإشارة لأن قوتها {strength}% أقل من {min_strength}%")
-            return None
+            return {
+                "signal": "WAIT",
+                "strength": strength,
+                "duration": 0,
+                "price": float(last["close"]),
+                "ema9": round(last["ema9"], 5),
+                "ema21": round(last["ema21"], 5),
+                "rsi": round(last["rsi"], 2),
+                "macd": round(last["macd"], 5),
+                "macd_signal": round(last["macd_signal"], 5),
+                "adx": round(last["adx"], 2),
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": f"قوة الإشارة ضعيفة ({strength}% - تحت {min_strength}%)",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
         
         # مدة الصفقة
         if strength >= 95:
@@ -360,7 +448,7 @@ def analyze_market(pair):
         else:
             duration = 60
         
-        # تجهيز النتيجة
+        # تجهيز النتيجة النهائية
         result = {
             "signal": signal,
             "strength": strength,
@@ -373,6 +461,7 @@ def analyze_market(pair):
             "macd_signal": round(last["macd_signal"], 5),
             "adx": round(last["adx"], 2),
             "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+            "reason": "\n".join(reasons[:5]),  # عرض أهم 5 أسباب
             "reasons": reasons,
             "timestamp": datetime.now().isoformat(),
             "pair": pair
@@ -396,10 +485,16 @@ def display_signal_formatted(result):
     print("\n" + "=" * 50)
     print(f"💱 الزوج: {result['pair']}")
     print(f"💰 السعر الحالي: {result['price']:.5f}")
-    signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
-    signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"  # ✅ تم تصحيح الخطأ هنا
-    print(f"📊 الإشارة: {signal_emoji} {signal_text}")
-    print(f"🔥 قوة الإشارة: {result['strength']}%")
+    
+    if result['signal'] == "WAIT":
+        print(f"⏸ الحالة: انتظار")
+        print(f"📝 السبب: {result.get('reason', 'لا يوجد سبب')}")
+    else:
+        signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
+        signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"
+        print(f"📊 الإشارة: {signal_emoji} {signal_text}")
+        print(f"🔥 قوة الإشارة: {result['strength']}%")
+    
     print("-" * 50)
     print(f"📈 EMA9 : {result['ema9']:.5f}")
     print(f"📉 EMA21 : {result['ema21']:.5f}")
@@ -409,8 +504,20 @@ def display_signal_formatted(result):
     if 'atr' in result and result['atr'] > 0:
         print(f"📊 ATR : {result['atr']:.5f}")
     print("-" * 50)
-    print(f"⏱ مدة الصفقة: {result['duration']} ثانية")
+    
+    if result['signal'] != "WAIT":
+        print(f"⏱ مدة الصفقة: {result['duration']} ثانية")
+    
     print(f"⏰ الوقت: {datetime.now().strftime('%H:%M')}")
+    
+    if result['signal'] != "WAIT" and 'reasons' in result:
+        print("-" * 50)
+        print("📝 الأسباب:")
+        for reason in result['reasons'][:5]:  # عرض أول 5 أسباب
+            print(f"  {reason}")
+        if len(result['reasons']) > 5:
+            print(f"  ... و {len(result['reasons']) - 5} أسباب أخرى")
+    
     print("=" * 50)
 
 def main():
@@ -422,7 +529,6 @@ def main():
         print('TWELVE_API = "مفتاح_api_الخاص_بك"')
         return
     
-    # تحليل زوج واحد
     pair = "XAU/USD"
     result = analyze_market(pair)
     display_signal_formatted(result)
