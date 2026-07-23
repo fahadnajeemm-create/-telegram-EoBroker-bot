@@ -278,7 +278,7 @@ def analyze_market(pair):
         
         # 8. حساب قوة الإشارة
         score = 0
-        max_score = 8
+        max_score = 10
         
         # EMA
         if (signal == "CALL" and last["ema9"] > last["ema21"]) or \
