@@ -324,6 +324,35 @@ def analyze_market(pair):
             score += 1
         elif signal == "PUT" and last["close"] < last["ema21"]:
             score += 1
+# توافق آخر شمعتين
+
+last2 = df.tail(2)
+
+if signal == "CALL":
+
+    if (last2["close"] > last2["open"]).all():
+
+        score += 1
+
+elif signal == "PUT":
+
+    if (last2["close"] < last2["open"]).all():
+
+        score += 1
+
+# اتجاه EMA21
+
+ema21_slope = last["ema21"] - prev["ema21"]
+
+if signal == "CALL" and ema21_slope > 0:
+
+    score += 1
+
+elif signal == "PUT" and ema21_slope < 0:
+
+    score += 1
+
+# حساب 
         
         # حساب النسبة المئوية للقوة
         strength = int((score / max_score) * 100)
