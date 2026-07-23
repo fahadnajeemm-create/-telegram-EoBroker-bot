@@ -193,7 +193,6 @@ def price_action_analysis(df, last):
     max_score = 5
     
     if len(df) >= 3:
-        prev2 = df.iloc[-3]
         prev = df.iloc[-2]
         current = last
         
@@ -275,8 +274,8 @@ def support_resistance_analysis(df, last):
     range_width = recent_high - recent_low
     
     # 4.1 عدم الشراء عند مقاومة قوية
-    if last["close"] >= recent_high * 0.98:  # قريب من المقاومة
-        if last["close"] > last["open"]:  # شمعة صاعدة
+    if last["close"] >= recent_high * 0.98:
+        if last["close"] > last["open"]:
             reasons.append("⚠️ شراء عند مقاومة قوية - غير موصى به")
             score -= 2
         else:
@@ -284,8 +283,8 @@ def support_resistance_analysis(df, last):
             score -= 1
     
     # 4.2 عدم البيع عند دعم قوي
-    if last["close"] <= recent_low * 1.02:  # قريب من الدعم
-        if last["close"] < last["open"]:  # شمعة هابطة
+    if last["close"] <= recent_low * 1.02:
+        if last["close"] < last["open"]:
             reasons.append("⚠️ بيع عند دعم قوي - غير موصى به")
             score -= 2
         else:
@@ -298,17 +297,16 @@ def support_resistance_analysis(df, last):
         score -= 1
     
     # 4.4 السعر قريب من الدعم أو المقاومة مع اتجاه
-    if last["close"] <= recent_low * 1.03:  # قرب الدعم
+    if last["close"] <= recent_low * 1.03:
         score += 2
         reasons.append(f"✅ السعر قرب الدعم: {recent_low:.5f}")
-    elif last["close"] >= recent_high * 0.97:  # قرب المقاومة
+    elif last["close"] >= recent_high * 0.97:
         score += 2
         reasons.append(f"✅ السعر قرب المقاومة: {recent_high:.5f}")
     else:
         score += 1
         reasons.append("✅ السعر في منطقة مناسبة")
     
-    # التأكد من أن النقاط لا تقل عن 0
     score = max(0, score)
     
     return score, max_score, reasons
@@ -387,7 +385,6 @@ def indicator_confirmation(df, last, direction):
         reasons.append(f"⚠️ شمعة ضعيفة: {body_ratio:.1f}x المتوسط")
     
     score = rsi_score + macd_score + bb_score + candle_score
-    max_score = 4
     
     return score, max_score, reasons
 
@@ -397,15 +394,13 @@ def indicator_confirmation(df, last, direction):
 def calculate_strength(direction, trend_score, pa_score, sr_score, ind_score):
     """المرحلة 6: حساب قوة الإشارة بالأوزان المحددة"""
     
-    # الأوزان
     weights = {
-        'trend': 0.30,      # 30%
-        'price_action': 0.25,  # 25%
-        'support_resistance': 0.20,  # 20%
-        'indicators': 0.20   # 20%
+        'trend': 0.30,
+        'price_action': 0.25,
+        'support_resistance': 0.20,
+        'indicators': 0.20
     }
     
-    # حساب الدرجة الموزونة
     weighted_score = (
         (trend_score / 4) * weights['trend'] +
         (pa_score / 5) * weights['price_action'] +
@@ -425,7 +420,6 @@ def analyze_market(pair):
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # جلب البيانات
         df = get_candles(pair)
         if df is None:
             print(f"❌ فشل جلب البيانات لـ {pair}")
@@ -437,7 +431,6 @@ def analyze_market(pair):
         
         print(f"✅ تم جلب {len(df)} شمعة")
         
-        # حساب المؤشرات الفنية
         print("🔄 حساب المؤشرات الفنية...")
         try:
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
@@ -484,9 +477,7 @@ def analyze_market(pair):
         all_reasons = []
         failed_reasons = []
         
-        # =============================================
         # المرحلة 1: فلترة السوق
-        # =============================================
         print("\n🔍 المرحلة 1: فلترة السوق")
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_avg)
         
@@ -495,11 +486,9 @@ def analyze_market(pair):
         
         if not filter_passed:
             print("❌ لم تجتز فلترة السوق")
-            # عرض أسباب الفشل بشكل مفصل
             fail_text = "فشل فلترة السوق:\n" + "\n".join(failed)
             
-            # تجهيز النتيجة مع أسباب الفشل
-            result = {
+            return {
                 "signal": "WAIT",
                 "strength": 0,
                 "duration": 0,
@@ -516,14 +505,11 @@ def analyze_market(pair):
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
-            return result
         
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
         
-        # =============================================
-        # المرحلة 2: تحديد الاتجاه (وزن 30%)
-        # =============================================
+        # المرحلة 2: تحديد الاتجاه
         print("\n🔍 المرحلة 2: تحديد الاتجاه (وزن 30%)")
         direction, trend_score, trend_max, trend_reasons = trend_analysis(df, last, last["atr"])
         
@@ -554,9 +540,7 @@ def analyze_market(pair):
         
         print(f"✅ الاتجاه: {direction}")
         
-        # =============================================
-        # المرحلة 3: Price Action (وزن 25%)
-        # =============================================
+        # المرحلة 3: Price Action
         print("\n🔍 المرحلة 3: تحليل Price Action (وزن 25%)")
         pattern, pa_score, pa_max, pa_reasons = price_action_analysis(df, last)
         
@@ -587,9 +571,7 @@ def analyze_market(pair):
         
         print(f"✅ النمط: {pattern}")
         
-        # =============================================
-        # المرحلة 4: الدعم والمقاومة (وزن 20%)
-        # =============================================
+        # المرحلة 4: الدعم والمقاومة
         print("\n🔍 المرحلة 4: تحليل الدعم والمقاومة (وزن 20%)")
         sr_score, sr_max, sr_reasons = support_resistance_analysis(df, last)
         
@@ -599,9 +581,7 @@ def analyze_market(pair):
         print(f"📊 نقاط الدعم والمقاومة: {sr_score}/{sr_max}")
         all_reasons.extend(sr_reasons)
         
-        # =============================================
-        # المرحلة 5: تأكيد المؤشرات (وزن 20%)
-        # =============================================
+        # المرحلة 5: تأكيد المؤشرات
         print("\n🔍 المرحلة 5: تأكيد المؤشرات (وزن 20%)")
         ind_score, ind_max, ind_reasons = indicator_confirmation(df, last, direction)
         
@@ -611,9 +591,7 @@ def analyze_market(pair):
         print(f"📊 نقاط المؤشرات: {ind_score:.1f}/{ind_max}")
         all_reasons.extend(ind_reasons)
         
-        # =============================================
-        # المرحلة 6: حساب القوة النهائية
-        # =============================================
+        # المرحلة 6: حساب القوة
         print("\n🔍 المرحلة 6: حساب قوة الإشارة")
         
         strength = calculate_strength(
@@ -626,7 +604,6 @@ def analyze_market(pair):
         
         print(f"📊 قوة الإشارة: {strength}%")
         
-        # تحديد الإشارة بناءً على القوة
         if strength >= 90:
             signal = "CALL" if direction == "BULLISH" else "PUT"
             duration = 30
@@ -654,7 +631,6 @@ def analyze_market(pair):
                 "pair": pair
             }
         
-        # تجهيز النتيجة النهائية
         result = {
             "signal": signal,
             "strength": strength,
@@ -709,14 +685,12 @@ def display_signal_formatted(result):
         print(f"⏸ الحالة: انتظار")
         print(f"📝 السبب: {result.get('reason', 'لا يوجد سبب')}")
         
-        # عرض المؤشرات الحالية
         print("-" * 50)
         print(f"📊 RSI: {result['rsi']:.2f}")
         print(f"📊 ADX: {result['adx']:.1f}")
         print(f"📊 EMA9: {result['ema9']:.5f}")
         print(f"📊 EMA21: {result['ema21']:.5f}")
         
-        # عرض الأسباب المفصلة إن وجدت
         if 'failed_checks' in result and result['failed_checks']:
             print("-" * 50)
             print("📝 أسباب الفشل:")
@@ -750,4 +724,30 @@ def display_signal_formatted(result):
                 'indicators': 'المؤشرات (20%)'
             }
             for stage, score in result['stage_scores'].items():
-                print(f"  {stage_names.get(stage, stage)}
+                print(f"  {stage_names.get(stage, stage)}: {score}")
+        
+        if 'details' in result and result['details']:
+            print("-" * 50)
+            print("📝 أهم الأسباب:")
+            for reason in result['details'][:6]:
+                print(f"  {reason}")
+            if len(result['details']) > 6:
+                print(f"  ... و {len(result['details']) - 6} أسباب أخرى")
+    
+    print("=" * 50)
+
+def main():
+    """الوظيفة الرئيسية"""
+    if not TWELVE_API and not os.environ.get('TWELVE_API'):
+        print("⚠️ تحذير: لم يتم العثور على مفتاح API لـ Twelve Data")
+        print("يرجى تعيين المتغير TWELVE_API في ملف config.py أو كمتغير بيئي")
+        print("\nمثال config.py:")
+        print('TWELVE_API = "مفتاح_api_الخاص_بك"')
+        return
+    
+    pair = "EUR/USD"
+    result = analyze_market(pair)
+    display_signal_formatted(result)
+
+if __name__ == "__main__":
+    main()
