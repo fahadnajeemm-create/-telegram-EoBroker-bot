@@ -199,29 +199,27 @@ def analyze_market(pair):
         else:
             score_sell += 30
             reasons.append(f"✅ EMA هابط (9: {last['ema9']:.5f} < 21: {last['ema21']:.5f})")
+        
         # 2. تحليل RSI
-if 55 <= last["rsi"] <= 70:
-    score_buy += 20
-    reasons.append(f"✅ RSI داعم للشراء = {last['rsi']:.1f}")
-
-elif 35 <= last["rsi"] <= 45:
-    score_sell += 20
-    reasons.append(f"✅ RSI داعم للبيع = {last['rsi']:.1f}")
-
-elif 45 < last["rsi"] < 55:
-    print("⚠️ RSI محايد")
-    return {
-        "signal": "WAIT",
-        "reason": "RSI محايد"
-    }
-
-elif last["rsi"] < 35:
-    score_sell += 10
-    reasons.append(f"⚠️ RSI منخفض جداً = {last['rsi']:.1f}")
-
-elif last["rsi"] > 70:
-    score_buy += 10
-    reasons.append(f"⚠️ RSI مرتفع جداً = {last['rsi']:.1f}")
+        if 55 <= last["rsi"] <= 70:
+            score_buy += 20
+            reasons.append(f"✅ RSI داعم للشراء = {last['rsi']:.1f}")
+        elif 35 <= last["rsi"] <= 45:
+            score_sell += 20
+            reasons.append(f"✅ RSI داعم للبيع = {last['rsi']:.1f}")
+        elif 45 < last["rsi"] < 55:
+            print("⚠️ RSI محايد")
+            return {
+                "signal": "WAIT",
+                "reason": "RSI محايد"
+            }
+        elif last["rsi"] < 35:
+            score_sell += 10
+            reasons.append(f"⚠️ RSI منخفض جداً = {last['rsi']:.1f}")
+        elif last["rsi"] > 70:
+            score_buy += 10
+            reasons.append(f"⚠️ RSI مرتفع جداً = {last['rsi']:.1f}")
+        
         # 3. تحليل MACD
         if last["macd"] > last["macd_signal"]:
             score_buy += 20
@@ -252,17 +250,17 @@ elif last["rsi"] > 70:
         if last["atr"] > 0:
             reasons.append(f"📊 ATR = {last['atr']:.5f} (التقلب)")
         
-         # 7. تحديد الإشارة
-if score_buy > score_sell:
-    signal = "CALL"
-elif score_sell > score_buy:
-    signal = "PUT"
-else:
-    print("⚠️ تعادل بين مؤشرات الشراء والبيع")
-    return {
-        "signal": "WAIT",
-        "reason": "تعادل المؤشرات"
-    }
+        # 7. تحديد الإشارة
+        if score_buy > score_sell:
+            signal = "CALL"
+        elif score_sell > score_buy:
+            signal = "PUT"
+        else:
+            print("⚠️ تعادل بين مؤشرات الشراء والبيع")
+            return {
+                "signal": "WAIT",
+                "reason": "تعادل المؤشرات"
+            }
         
         print(f"📊 نقاط الشراء: {score_buy}, نقاط البيع: {score_sell}")
         print(f"📊 الإشارة الأولية: {signal}")
