@@ -324,35 +324,22 @@ def analyze_market(pair):
             score += 1
         elif signal == "PUT" and last["close"] < last["ema21"]:
             score += 1
-# توافق آخر شمعتين
-
-last2 = df.tail(2)
-
-if signal == "CALL":
-
-    if (last2["close"] > last2["open"]).all():
-
-        score += 1
-
-elif signal == "PUT":
-
-    if (last2["close"] < last2["open"]).all():
-
-        score += 1
-
-# اتجاه EMA21
-
-ema21_slope = last["ema21"] - prev["ema21"]
-
-if signal == "CALL" and ema21_slope > 0:
-
-    score += 1
-
-elif signal == "PUT" and ema21_slope < 0:
-
-    score += 1
-
-# حساب 
+        
+        # توافق آخر شمعتين - ✅ تم تصحيح المسافة البادئة
+        last2 = df.tail(2)
+        if signal == "CALL":
+            if (last2["close"] > last2["open"]).all():
+                score += 1
+        elif signal == "PUT":
+            if (last2["close"] < last2["open"]).all():
+                score += 1
+        
+        # اتجاه EMA21 - ✅ تم تصحيح المسافة البادئة
+        ema21_slope = last["ema21"] - prev["ema21"]
+        if signal == "CALL" and ema21_slope > 0:
+            score += 1
+        elif signal == "PUT" and ema21_slope < 0:
+            score += 1
         
         # حساب النسبة المئوية للقوة
         strength = int((score / max_score) * 100)
@@ -410,8 +397,7 @@ def display_signal_formatted(result):
     print(f"💱 الزوج: {result['pair']}")
     print(f"💰 السعر الحالي: {result['price']:.5f}")
     signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
-    # ✅ تم تصحيح الخطأ هنا - إزالة الاقتباس الزائد
-    signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"
+    signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"  # ✅ تم تصحيح الخطأ هنا
     print(f"📊 الإشارة: {signal_emoji} {signal_text}")
     print(f"🔥 قوة الإشارة: {result['strength']}%")
     print("-" * 50)
