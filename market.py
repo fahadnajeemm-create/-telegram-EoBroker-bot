@@ -185,6 +185,18 @@ def analyze_market(pair):
         if last["atr"] < atr_avg * 0.7:
             print("⚠️ السوق هادئ، تم تجاهل الإشارة")
             return None
+
+        # ==========================
+# فلتر القفزة السعرية
+# ==========================
+
+# متوسط حجم جسم آخر 10 شموع
+avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
+
+# إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
+if body > avg_body * 2:
+    print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
+    return None
         
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
