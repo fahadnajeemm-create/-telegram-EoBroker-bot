@@ -1,8 +1,8 @@
-# bot.py - النسخة المحسنة بالكامل
+# bot_binary.py - النسخة المحسنة للتداول الثنائي
 
 import telebot
 from telebot import types
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import logging
 import time
@@ -14,6 +14,7 @@ from functools import wraps
 from typing import Dict, Optional, List, Any
 from collections import defaultdict
 import sys
+import random
 
 # استيراد الإعدادات والدوال
 from config import BOT_TOKEN, PAIRS, LOG_LEVEL, MAX_RETRIES, SIGNAL_TIMEOUT, NOTIFICATION_INTERVAL
@@ -26,18 +27,18 @@ logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log', encoding='utf-8'),
+        logging.FileHandler('binary_bot.log', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 
 # =============================================
-# إدارة الحالة والبيانات
+# إدارة الحالة والبيانات للتداول الثنائي
 # =============================================
 
-class UserState:
-    """إدارة حالة المستخدم"""
+class BinaryTradeState:
+    """حالة التداول الثنائي للمستخدم"""
     def __init__(self):
         self.language: str = 'ar'
         self.pair: str = PAIRS[0] if PAIRS else 'EUR/USD'
@@ -46,16 +47,33 @@ class UserState:
         self.notification_pair: Optional[str] = None
         self.notification_interval: int = NOTIFICATION_INTERVAL
         self.risk_level: str = 'medium'  # low, medium, high
-        self.timeframe: str = '15m'
+        self.timeframe: str = '1m'  # 1m, 5m, 15m, 30m, 1h
+        self.expiry_time: int = 60  # ثانية (1, 2, 5 دقائق)
+        
+        # إحصائيات التداول
         self.total_signals: int = 0
         self.calls: int = 0
         self.puts: int = 0
         self.wins: int = 0
         self.losses: int = 0
+        self.profit: float = 0.0
+        self.total_invested: float = 0.0
+        self.win_rate: float = 0.0
+        
+        # تتبع الصفقات
+        self.trades: List[Dict] = []
+        self.current_trade: Optional[Dict] = None
+        
+        # إعدادات التداول
+        self.investment_amount: float = 10.0  # المبلغ الافتراضي
+        self.max_investment: float = 100.0
+        self.stop_loss: float = 0.0
+        self.take_profit: float = 0.0
+        self.trade_strategy: str = 'standard'  # standard, martingale, fibonacci
 
 class DataStore:
     """تخزين بيانات المستخدمين"""
-    def __init__(self, filename='user_data.json'):
+    def __init__(self, filename='binary_user_data.json'):
         self.filename = filename
         self.data = self.load()
     
@@ -83,21 +101,23 @@ class DataStore:
         self.data[str(chat_id)] = data
         self.save()
     
-    def get_user_state(self, chat_id: int) -> UserState:
+    def get_user_state(self, chat_id: int) -> BinaryTradeState:
         user_data = self.get_user(chat_id)
-        state = UserState()
+        state = BinaryTradeState()
         for key, value in user_data.items():
             if hasattr(state, key):
                 setattr(state, key, value)
         return state
     
-    def save_user_state(self, chat_id: int, state: UserState):
-        self.update_user(chat_id, state.__dict__)
+    def save_user_state(self, chat_id: int, state: BinaryTradeState):
+        # تحويل trades إلى JSON قابل للتخزين
+        state_dict = state.__dict__.copy()
+        self.update_user(chat_id, state_dict)
 
 data_store = DataStore()
-user_states: Dict[int, UserState] = {}
+user_states: Dict[int, BinaryTradeState] = {}
 
-def get_user_state(chat_id: int) -> UserState:
+def get_user_state(chat_id: int) -> BinaryTradeState:
     """الحصول على حالة المستخدم"""
     if chat_id not in user_states:
         user_states[chat_id] = data_store.get_user_state(chat_id)
@@ -109,183 +129,404 @@ def save_user_state(chat_id: int):
         data_store.save_user_state(chat_id, user_states[chat_id])
 
 # =============================================
-# نظام الحماية من التكرار
+# نظام إدارة الصفقات للتداول الثنائي
 # =============================================
 
-class RateLimiter:
-    """نظام حماية متقدم من التكرار"""
-    def __init__(self):
-        self.requests: Dict[int, List[float]] = defaultdict(list)
-        self.limits = {
-            'signal': {'max_requests': 5, 'time_window': 60},
-            'auto_signal': {'max_requests': 20, 'time_window': 300},
-            'analysis': {'max_requests': 3, 'time_window': 30}
+class TradeManager:
+    """إدارة صفقات التداول الثنائي"""
+    
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
+        self.state = get_user_state(chat_id)
+        self.active_trades = []
+        self.completed_trades = []
+        
+    def open_trade(self, pair: str, signal: str, price: float, expiry: int, investment: float) -> Dict:
+        """فتح صفقة جديدة"""
+        trade = {
+            'id': len(self.state.trades) + 1,
+            'pair': pair,
+            'signal': signal,
+            'entry_price': price,
+            'expiry': expiry,
+            'investment': investment,
+            'open_time': datetime.now(ZoneInfo('Asia/Riyadh')).isoformat(),
+            'close_time': None,
+            'result': None,
+            'profit': 0.0,
+            'status': 'active'
         }
+        
+        self.state.trades.append(trade)
+        self.state.total_invested += investment
+        self.state.current_trade = trade
+        save_user_state(self.chat_id)
+        
+        return trade
     
-    def is_allowed(self, chat_id: int, request_type: str) -> bool:
-        now = time.time()
-        limit = self.limits.get(request_type, {'max_requests': 10, 'time_window': 60})
-        
-        # تنظيف الطلبات القديمة
-        self.requests[chat_id] = [
-            req_time for req_time in self.requests[chat_id]
-            if now - req_time < limit['time_window']
-        ]
-        
-        if len(self.requests[chat_id]) >= limit['max_requests']:
-            return False
-        
-        self.requests[chat_id].append(now)
-        return True
-
-rate_limiter = RateLimiter()
+    def close_trade(self, trade_id: int, result: str, profit: float):
+        """إغلاق صفقة"""
+        for trade in self.state.trades:
+            if trade['id'] == trade_id:
+                trade['status'] = 'closed'
+                trade['close_time'] = datetime.now(ZoneInfo('Asia/Riyadh')).isoformat()
+                trade['result'] = result
+                trade['profit'] = profit
+                
+                if result == 'win':
+                    self.state.wins += 1
+                    self.state.profit += profit
+                else:
+                    self.state.losses += 1
+                
+                self.state.total_signals += 1
+                self.state.current_trade = None
+                self.update_win_rate()
+                save_user_state(self.chat_id)
+                break
+    
+    def update_win_rate(self):
+        """تحديث نسبة الفوز"""
+        total = self.state.wins + self.state.losses
+        if total > 0:
+            self.state.win_rate = (self.state.wins / total) * 100
+    
+    def get_active_trades(self) -> List[Dict]:
+        """الحصول على الصفقات النشطة"""
+        return [t for t in self.state.trades if t['status'] == 'active']
+    
+    def get_trade_stats(self) -> Dict:
+        """الحصول على إحصائيات التداول"""
+        return {
+            'total_trades': self.state.total_signals,
+            'wins': self.state.wins,
+            'losses': self.state.losses,
+            'win_rate': self.state.win_rate,
+            'profit': self.state.profit,
+            'total_invested': self.state.total_invested,
+            'roi': (self.state.profit / max(self.state.total_invested, 1)) * 100
+        }
 
 # =============================================
-# دوال مساعدة
+# دوال تحليل السوق للتداول الثنائي
 # =============================================
 
-def get_rsi_status(rsi: float) -> str:
-    """تقييم حالة RSI"""
-    if rsi >= 70:
-        return "🟥 تشبع شرائي"
-    elif rsi <= 30:
-        return "🟩 تشبع بيعي"
-    elif rsi >= 50:
-        return "🟨 اتجاه صاعد"
-    else:
-        return "🟦 اتجاه هابط"
-
-def get_adx_status(adx: float) -> str:
-    """تقييم قوة الاتجاه"""
-    if adx >= 40:
-        return "🔥 اتجاه قوي جداً"
-    elif adx >= 25:
-        return "💪 اتجاه متوسط"
-    else:
-        return "👀 اتجاه ضعيف"
-
-def get_extra_tips(analysis: Dict) -> str:
-    """نصائح إضافية حسب التحليل"""
-    tips = []
+def get_binary_signal(analysis: Dict) -> Dict:
+    """تحويل التحليل الفني إلى إشارة تداول ثنائي"""
     
-    if analysis.get('signal') == 'CALL':
-        tips.append("📍 ضع أمر الشراء عند السعر الحالي")
-        tips.append("🛑 ضع وقف الخسارة تحت أقرب دعم")
-        tips.append("🎯 استهدف المقاومة التالية")
-    else:
-        tips.append("📍 ضع أمر البيع عند السعر الحالي")
-        tips.append("🛑 ضع وقف الخسارة فوق أقرب مقاومة")
-        tips.append("🎯 استهدف الدعم التالي")
+    signal = {
+        'direction': 'WAIT',
+        'confidence': 0,
+        'expiry': 60,  # دقيقة افتراضية
+        'reason': '',
+        'entry_price': analysis.get('price', 0)
+    }
     
+    # معايير الإشارة للتداول الثنائي
+    rsi = analysis.get('rsi', 50)
+    macd = analysis.get('macd', 0)
+    adx = analysis.get('adx', 25)
+    ema9 = analysis.get('ema9', 0)
+    ema21 = analysis.get('ema21', 0)
     strength = analysis.get('strength', 0)
-    if strength > 70:
-        tips.append("⭐ إشارة قوية - يمكن زيادة حجم الصفقة")
-    elif strength < 30:
-        tips.append("⚠️ إشارة ضعيفة - استخدم حجم صفقة صغير")
     
-    if analysis.get('rsi', 50) > 70 or analysis.get('rsi', 50) < 30:
-        tips.append("🔄 مؤشر RSI يشير إلى انعكاس محتمل")
+    # إشارة CALL (شراء)
+    if (rsi < 70 and rsi > 30 and 
+        macd > 0 and 
+        ema9 > ema21 and 
+        adx > 25 and 
+        strength > 50):
+        signal['direction'] = 'CALL'
+        signal['confidence'] = min(100, strength + random.randint(0, 10))
+        signal['expiry'] = 60  # 1 دقيقة
+        signal['reason'] = 'المؤشرات تشير إلى اتجاه صاعد قوي'
     
-    return "\n".join(f"• {tip}" for tip in tips)
-
-# =============================================
-# دوال إعادة المحاولة
-# =============================================
-
-def retry_on_error(max_retries: int = MAX_RETRIES, delay: int = 1):
-    """مزين لإعادة المحاولة عند الخطأ"""
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    logger.error(f"Attempt {attempt + 1} failed: {e}")
-                    if attempt < max_retries - 1:
-                        time.sleep(delay * (attempt + 1))  # تأخير متزايد
-                    else:
-                        raise
-        return wrapper
-    return decorator
-
-@retry_on_error(max_retries=3, delay=2)
-def safe_send_message(chat_id: int, text: str, **kwargs):
-    """إرسال رسالة مع إعادة المحاولة"""
-    return bot.send_message(chat_id, text, **kwargs)
-
-# =============================================
-# تنسيق الإشارات
-# =============================================
-
-def format_signal_message(pair: str, analysis: Dict, state: UserState) -> str:
-    """تنسيق رسالة الإشارة بشكل احترافي"""
+    # إشارة PUT (بيع)
+    elif (rsi < 70 and rsi > 30 and 
+          macd < 0 and 
+          ema9 < ema21 and 
+          adx > 25 and 
+          strength > 50):
+        signal['direction'] = 'PUT'
+        signal['confidence'] = min(100, strength + random.randint(0, 10))
+        signal['expiry'] = 60  # 1 دقيقة
+        signal['reason'] = 'المؤشرات تشير إلى اتجاه هابط قوي'
     
-    signal_emoji = "🟢" if analysis["signal"] == "CALL" else "🔴"
-    signal_text = "شراء" if analysis["signal"] == "CALL" else "بيع"
+    # إشارة CALL مع تشبع شرائي (انعكاس)
+    elif (rsi > 70 and 
+          macd < 0 and 
+          adx > 30 and 
+          strength > 60):
+        signal['direction'] = 'PUT'
+        signal['confidence'] = 70
+        signal['expiry'] = 120  # 2 دقيقة
+        signal['reason'] = 'تشبع شرائي مع انعكاس محتمل للهبوط'
     
-    # تقييم جودة الإشارة
-    strength = analysis.get('strength', 0)
-    if strength >= 80:
-        quality = "🔥 ممتازة"
-    elif strength >= 60:
-        quality = "💪 جيدة"
-    elif strength >= 40:
-        quality = "👍 مقبولة"
+    # إشارة PUT مع تشبع بيعي (انعكاس)
+    elif (rsi < 30 and 
+          macd > 0 and 
+          adx > 30 and 
+          strength > 60):
+        signal['direction'] = 'CALL'
+        signal['confidence'] = 70
+        signal['expiry'] = 120  # 2 دقيقة
+        signal['reason'] = 'تشبع بيعي مع انعكاس محتمل للصعود'
+    
     else:
-        quality = "👀 ضعيفة"
+        signal['reason'] = 'لا توجد إشارة واضحة حالياً'
+        signal['confidence'] = strength
     
-    # معلومات إضافية
-    market_condition = "📈 صاعد" if analysis.get('trend') == 'up' else "📉 هابط" if analysis.get('trend') == 'down' else "🔄 جانبي"
+    return signal
+
+# =============================================
+# تنسيق رسائل التداول الثنائي
+# =============================================
+
+def format_binary_signal(pair: str, analysis: Dict, signal: Dict, state: BinaryTradeState) -> str:
+    """تنسيق رسالة الإشارة للتداول الثنائي"""
+    
+    direction_emoji = "🟢" if signal['direction'] == 'CALL' else "🔴" if signal['direction'] == 'PUT' else "⏸"
+    direction_text = "شراء (CALL)" if signal['direction'] == 'CALL' else "بيع (PUT)" if signal['direction'] == 'PUT' else "انتظار"
+    
+    # تحديد مستوى الثقة
+    confidence = signal['confidence']
+    if confidence >= 80:
+        confidence_level = "🔥 عالية جداً"
+    elif confidence >= 60:
+        confidence_level = "💪 عالية"
+    elif confidence >= 40:
+        confidence_level = "👍 متوسطة"
+    else:
+        confidence_level = "👀 منخفضة"
+    
+    # معلومات التداول
+    expiry_minutes = signal['expiry'] // 60
+    expiry_text = f"{expiry_minutes} دقيقة" if expiry_minutes > 0 else f"{signal['expiry']} ثانية"
+    
+    # إحصائيات المستخدم
+    win_rate = state.win_rate
+    profit = state.profit
+    
+    # نصائح لإدارة المخاطر
+    risk_advice = ""
+    if state.risk_level == 'low':
+        risk_advice = "🟢 مخاطرة منخفضة - استثمر جزء صغير من رأس المال"
+    elif state.risk_level == 'medium':
+        risk_advice = "🟡 مخاطرة متوسطة - استثمر بحذر مع إدارة المخاطر"
+    else:
+        risk_advice = "🔴 مخاطرة عالية - استثمر فقط إذا كنت مستعداً للمخاطرة"
     
     return f"""
-{signal_emoji} *إشارة تداول - {quality}*
+{direction_emoji} *إشارة تداول ثنائي*
 
 📊 *الزوج:* {pair}
-💰 *السعر:* {analysis.get('price', 'N/A')}
-🎯 *الاتجاه:* {signal_text}
-📈 *القوة:* {strength}%
-📊 *حالة السوق:* {market_condition}
-
-📈 *المؤشرات الفنية:*
-• EMA9: {analysis.get('ema9', 'N/A')}
-• EMA21: {analysis.get('ema21', 'N/A')}
-• RSI: {analysis.get('rsi', 'N/A')} - {get_rsi_status(analysis.get('rsi', 50))}
-• MACD: {analysis.get('macd', 'N/A')}
-• ADX: {analysis.get('adx', 'N/A')} - {get_adx_status(analysis.get('adx', 25))}
-
-⏱ *المدة الموصى بها:* {analysis.get('duration', 60)} ثانية
-⏰ *وقت التحليل:* {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%H:%M:%S')}
-
-💡 *سبب الإشارة:* {analysis.get('reason', 'تحليل فني شامل')}
-
-📝 *نصائح إضافية:*
-{get_extra_tips(analysis)}
-
-{'─' * 20}
-⚠️ *تنبيه:* هذه المعلومات لأغراض تعليمية فقط
-🎯 {state.total_signals} إشارة سابقة | 🏆 {state.wins} ربح | ❌ {state.losses} خسارة
-"""
-
-def format_wait_message(pair: str, analysis: Dict) -> str:
-    """تنسيق رسالة الانتظار"""
-    return f"""
-⏸ *لا توجد فرصة قوية حالياً*
-
-💱 *الزوج:* {pair}
-💰 *السعر:* {analysis.get('price', 'N/A')}
+💰 *سعر الدخول:* {signal['entry_price']}
+🎯 *الاتجاه:* {direction_text}
+📈 *الثقة:* {confidence}% ({confidence_level})
 
 📊 *المؤشرات الفنية:*
+• RSI: {analysis.get('rsi', 'N/A')}
+• MACD: {analysis.get('macd', 'N/A')}
+• ADX: {analysis.get('adx', 'N/A')}
 • EMA9: {analysis.get('ema9', 'N/A')}
 • EMA21: {analysis.get('ema21', 'N/A')}
-• RSI: {analysis.get('rsi', 'N/A')} - {get_rsi_status(analysis.get('rsi', 50))}
-• MACD: {analysis.get('macd', 'N/A')}
-• ADX: {analysis.get('adx', 'N/A')} - {get_adx_status(analysis.get('adx', 25))}
 
-💡 *السبب:* {analysis.get('reason', 'لا توجد إشارة واضحة حالياً')}
+⏱ *مدة الصفقة:* {expiry_text}
+💡 *السبب:* {signal['reason']}
 
-📌 *نصيحة:* انتظر حتى تتكون إشارة واضحة
+{'─' * 20}
+📊 *إحصائياتك:*
+• إجمالي الصفقات: {state.total_signals}
+• أرباح: {state.wins} | خسائر: {state.losses}
+• نسبة الفوز: {win_rate:.1f}%
+• الربح الإجمالي: ${profit:.2f}
+
+💡 *نصائح التداول:*
+{risk_advice}
+• استخدم وقف الخسارة المناسب
+• لا تخاطر بأكثر من 2-5% من رأس المال
+
+⚠️ *تحذير:* التداول الثنائي ينطوي على مخاطر عالية
 """
+
+def format_trade_result(trade: Dict, result: str, profit: float) -> str:
+    """تنسيق نتيجة الصفقة"""
+    
+    if result == 'win':
+        emoji = "🎉"
+        status = "ربح"
+        color = "🟢"
+    else:
+        emoji = "😔"
+        status = "خسارة"
+        color = "🔴"
+    
+    # حساب نسبة الربح/الخسارة
+    roi = (profit / trade['investment']) * 100
+    
+    return f"""
+{emoji} *نتيجة الصفقة - {status}*
+
+{color} *الزوج:* {trade['pair']}
+💰 *المبلغ المستثمر:* ${trade['investment']}
+📊 *النتيجة:* {status} ({roi:.1f}%)
+{'✅' if result == 'win' else '❌'} *الربح/الخسارة:* ${profit:.2f}
+
+⏱ *وقت الدخول:* {trade['open_time'][:19]}
+⏰ *وقت الخروج:* {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%Y-%m-%d %H:%M:%S')}
+
+📈 *نصيحة:* {
+    'استمر بنفس الاستراتيجية' if result == 'win' else 
+    'راجع استراتيجيتك وحاول مرة أخرى'
+}
+"""
+
+# =============================================
+# دوال التداول الثنائي
+# =============================================
+
+def execute_binary_trade(chat_id: int, pair: str, analysis: Dict) -> Dict:
+    """تنفيذ صفقة تداول ثنائي"""
+    
+    state = get_user_state(chat_id)
+    trade_manager = TradeManager(chat_id)
+    
+    # الحصول على إشارة التداول
+    signal = get_binary_signal(analysis)
+    
+    if signal['direction'] == 'WAIT':
+        return {
+            'status': 'wait',
+            'message': 'لا توجد فرصة تداول مناسبة حالياً',
+            'analysis': analysis
+        }
+    
+    # حساب مبلغ الاستثمار حسب استراتيجية التداول
+    investment = calculate_investment(state)
+    
+    # فتح الصفقة
+    trade = trade_manager.open_trade(
+        pair=pair,
+        signal=signal['direction'],
+        price=signal['entry_price'],
+        expiry=signal['expiry'],
+        investment=investment
+    )
+    
+    # جدولة إغلاق الصفقة
+    schedule_close_trade(chat_id, trade['id'], signal['direction'], signal['entry_price'])
+    
+    return {
+        'status': 'executed',
+        'trade': trade,
+        'signal': signal,
+        'analysis': analysis
+    }
+
+def calculate_investment(state: BinaryTradeState) -> float:
+    """حساب مبلغ الاستثمار حسب استراتيجية التداول"""
+    
+    base_amount = state.investment_amount
+    
+    if state.trade_strategy == 'martingale':
+        # مضاعفة المبلغ بعد الخسارة
+        last_trades = state.trades[-5:]  # آخر 5 صفقات
+        losses = sum(1 for t in last_trades if t.get('result') == 'loss')
+        return base_amount * (2 ** losses)
+    
+    elif state.trade_strategy == 'fibonacci':
+        # استراتيجية فيبوناتشي
+        fib_numbers = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
+        losses = sum(1 for t in state.trades[-10:] if t.get('result') == 'loss')
+        idx = min(losses, len(fib_numbers) - 1)
+        return base_amount * fib_numbers[idx]
+    
+    else:  # standard
+        return base_amount
+
+def schedule_close_trade(chat_id: int, trade_id: int, direction: str, entry_price: float):
+    """جدولة إغلاق الصفقة"""
+    
+    state = get_user_state(chat_id)
+    expiry = state.expiry_time
+    
+    def close_trade():
+        try:
+            # محاكاة نتيجة الصفقة (في الواقع ستأتي من مزود البيانات)
+            # هنا نستخدم محاكاة بسيطة للتوضيح
+            result, profit = simulate_trade_result(direction, entry_price)
+            
+            trade_manager = TradeManager(chat_id)
+            trade_manager.close_trade(trade_id, result, profit)
+            
+            # إرسال النتيجة للمستخدم
+            trade = next((t for t in state.trades if t['id'] == trade_id), None)
+            if trade:
+                bot.send_message(
+                    chat_id,
+                    format_trade_result(trade, result, profit),
+                    parse_mode='Markdown'
+                )
+        except Exception as e:
+            logger.error(f"Error closing trade: {e}")
+    
+    # جدولة الإغلاق بعد المدة المحددة
+    threading.Timer(expiry, close_trade).start()
+
+def simulate_trade_result(direction: str, entry_price: float) -> tuple:
+    """محاكاة نتيجة الصفقة (للتجربة)"""
+    
+    # في النسخة الحقيقية، سيتم جلب السعر الحقيقي من السوق
+    # هذه محاكاة فقط للتوضيح
+    
+    # محاكاة حركة السعر
+    price_change = random.uniform(-0.005, 0.005)  # تغيير عشوائي
+    current_price = entry_price * (1 + price_change)
+    
+    # تحديد النتيجة
+    if direction == 'CALL':
+        win = current_price > entry_price
+    else:  # PUT
+        win = current_price < entry_price
+    
+    # حساب الربح/الخسارة (نسبة 80% للربح، 100% للخسارة)
+    investment = 10.0  # سيتم جلبها من البيانات الفعلية
+    if win:
+        profit = investment * 0.8  # 80% ربح
+        return 'win', profit
+    else:
+        profit = -investment
+        return 'loss', profit
+
+# =============================================
+# دوال إدارة المخاطر
+# =============================================
+
+def get_risk_advice(state: BinaryTradeState) -> str:
+    """الحصول على نصائح إدارة المخاطر"""
+    
+    advice = []
+    
+    # تحليل نسبة الفوز
+    if state.win_rate < 40:
+        advice.append("⚠️ نسبة الفوز منخفضة - قلل حجم الاستثمار")
+    elif state.win_rate > 70:
+        advice.append("🌟 نسبة الفوز ممتازة - استمر بنفس الاستراتيجية")
+    
+    # تحليل الربح/الخسارة
+    if state.profit < -100:
+        advice.append("🔴 خسائر كبيرة - توقف عن التداول وراجع استراتيجيتك")
+    elif state.profit > 100:
+        advice.append("🟢 أرباح جيدة - احتفل ولكن استمر بحذر")
+    
+    # نصائح عامة
+    if state.total_signals > 20 and state.win_rate < 50:
+        advice.append("💡 جرب تغيير استراتيجيتك أو زوج العملات")
+    
+    if state.total_signals > 50:
+        advice.append("📊 لديك خبرة جيدة - استمر في تحسين استراتيجيتك")
+    
+    return "\n".join(advice) if advice else "👍 استمر في التداول بحذر"
 
 # =============================================
 # إعداد البوت
@@ -294,54 +535,60 @@ def format_wait_message(pair: str, analysis: Dict) -> str:
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # =============================================
-# دوال القوائم
+# دوال القوائم للتداول الثنائي
 # =============================================
 
 def main_menu(chat_id: int):
-    """القائمة الرئيسية المحسنة"""
+    """القائمة الرئيسية للتداول الثنائي"""
     try:
         state = get_user_state(chat_id)
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         
-        # الصف الأول - الإشارات
+        # الصف الأول - التداول
         keyboard.add(
-            types.InlineKeyboardButton("📊 إشارة فورية", callback_data="signal"),
-            types.InlineKeyboardButton("🔄 إشارة دورية", callback_data="auto_signal")
+            types.InlineKeyboardButton("📊 إشارة تداول", callback_data="signal"),
+            types.InlineKeyboardButton("💱 تغيير الزوج", callback_data="pairs")
         )
         
         # الصف الثاني - الإعدادات
         keyboard.add(
-            types.InlineKeyboardButton("💱 تغيير الزوج", callback_data="pairs"),
-            types.InlineKeyboardButton("⚙️ إعدادات", callback_data="settings")
+            types.InlineKeyboardButton("⚙️ إعدادات التداول", callback_data="settings"),
+            types.InlineKeyboardButton("📈 إحصائياتي", callback_data="stats")
         )
         
-        # الصف الثالث - الإحصائيات والمساعدة
-        keyboard.add(
-            types.InlineKeyboardButton("📈 إحصائياتي", callback_data="stats"),
-            types.InlineKeyboardButton("ℹ️ مساعدة", callback_data="help")
-        )
-        
-        # الصف الرابع - إشعارات
+        # الصف الثالث - الإشعارات
         notify_status = "🔔 مفعل" if state.subscribed else "🔕 معطل"
         keyboard.add(
             types.InlineKeyboardButton(f"الإشعارات: {notify_status}", callback_data="toggle_notify")
         )
         
+        # الصف الرابع - المخاطرة والمساعدة
+        keyboard.add(
+            types.InlineKeyboardButton("🛡 إدارة المخاطر", callback_data="risk_management"),
+            types.InlineKeyboardButton("ℹ️ مساعدة", callback_data="help")
+        )
+        
         # معلومات المستخدم
         user_info = f"""
-🏠 *القائمة الرئيسية*
+🏠 *القائمة الرئيسية - تداول ثنائي*
 
 👤 المستخدم: {chat_id}
 💱 الزوج الحالي: {state.pair}
-🌐 اللغة: {'العربية' if state.language == 'ar' else 'English'}
+⏱ مدة الصفقة: {state.expiry_time} ثانية
+💰 المبلغ الافتراضي: ${state.investment_amount}
 ⚖️ مستوى المخاطرة: {state.risk_level}
-📊 الإشارات: {state.total_signals}
-📈 الربح: {state.wins} | 📉 الخسارة: {state.losses}
+📊 استراتيجية: {state.trade_strategy}
+
+📈 *إحصائيات سريعة:*
+• الصفقات: {state.total_signals}
+• الربح: {state.wins} | الخسارة: {state.losses}
+• نسبة الفوز: {state.win_rate:.1f}%
+• إجمالي الربح: ${state.profit:.2f}
 
 اختر من القائمة:
 """
         
-        safe_send_message(
+        bot.send_message(
             chat_id,
             user_info,
             reply_markup=keyboard,
@@ -349,45 +596,85 @@ def main_menu(chat_id: int):
         )
     except Exception as e:
         logger.error(f"Error in main_menu: {e}")
-        safe_send_message(chat_id, "❌ حدث خطأ في القائمة الرئيسية")
+        bot.send_message(chat_id, "❌ حدث خطأ في القائمة الرئيسية")
 
 def settings_menu(chat_id: int):
-    """قائمة الإعدادات"""
+    """قائمة إعدادات التداول"""
     state = get_user_state(chat_id)
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     
-    # مخاطرة
-    risk_emojis = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}
+    # إعدادات التداول
     keyboard.add(
         types.InlineKeyboardButton(
-            f"{risk_emojis.get(state.risk_level, '⚖️')} المخاطرة: {state.risk_level}",
-            callback_data="risk_settings"
+            f"💰 المبلغ: ${state.investment_amount}",
+            callback_data="investment_amount"
         )
     )
-    
-    # الإطار الزمني
     keyboard.add(
         types.InlineKeyboardButton(
-            f"⏱ الإطار: {state.timeframe}",
-            callback_data="timeframe_settings"
+            f"⏱ المدة: {state.expiry_time}s",
+            callback_data="expiry_time"
         )
     )
-    
-    # مدة الإشعارات
     keyboard.add(
         types.InlineKeyboardButton(
-            f"⏰ مدة الإشعار: {state.notification_interval//60} دقيقة",
-            callback_data="notify_interval"
+            f"⚖️ المخاطرة: {state.risk_level}",
+            callback_data="risk_level"
         )
     )
-    
+    keyboard.add(
+        types.InlineKeyboardButton(
+            f"📊 استراتيجية: {state.trade_strategy}",
+            callback_data="trade_strategy"
+        )
+    )
+    keyboard.add(
+        types.InlineKeyboardButton(
+            f"🔔 الإشعارات: {'مفعل' if state.subscribed else 'معطل'}",
+            callback_data="toggle_notify"
+        )
+    )
     keyboard.add(
         types.InlineKeyboardButton("🔙 رجوع", callback_data="back")
     )
     
-    safe_send_message(
+    bot.send_message(
         chat_id,
-        "⚙️ *الإعدادات*\nقم بتخصيص تجربتك:",
+        "⚙️ *إعدادات التداول الثنائي*\n"
+        "قم بتخصيص إعدادات التداول الخاصة بك:",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+def risk_management_menu(chat_id: int):
+    """قائمة إدارة المخاطر"""
+    state = get_user_state(chat_id)
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    
+    keyboard.add(
+        types.InlineKeyboardButton("🛑 وقف الخسارة", callback_data="set_stop_loss"),
+        types.InlineKeyboardButton("🎯 جني الأرباح", callback_data="set_take_profit")
+    )
+    keyboard.add(
+        types.InlineKeyboardButton("📊 نصائح المخاطرة", callback_data="risk_tips"),
+        types.InlineKeyboardButton("🔄 إعادة تعيين", callback_data="reset_settings")
+    )
+    keyboard.add(
+        types.InlineKeyboardButton("🔙 رجوع", callback_data="back")
+    )
+    
+    # عرض حالة المخاطرة الحالية
+    risk_advice = get_risk_advice(state)
+    
+    bot.send_message(
+        chat_id,
+        f"🛡 *إدارة المخاطر*\n\n"
+        f"📊 *حالتك الحالية:*\n"
+        f"• نسبة الفوز: {state.win_rate:.1f}%\n"
+        f"• إجمالي الربح: ${state.profit:.2f}\n"
+        f"• عدد الصفقات: {state.total_signals}\n\n"
+        f"💡 *نصائح:*\n{risk_advice}\n\n"
+        f"اختر من القائمة:",
         reply_markup=keyboard,
         parse_mode='Markdown'
     )
@@ -408,11 +695,26 @@ def start(message):
             types.InlineKeyboardButton("English 🇬🇧", callback_data="en")
         )
         
-        safe_send_message(
+        welcome_text = """
+🌍 *اختر اللغة / Choose language:*
+
+🤖 *بوت التداول الثنائي v3.0*
+
+📊 *مميزات البوت:*
+• تحليل فني دقيق للأسواق
+• إشارات تداول ثنائي احترافية
+• إدارة متقدمة للمخاطر
+• إحصائيات دقيقة للأداء
+• إشعارات تلقائية للصفقات
+
+⚠️ *تنبيه مهم:* 
+التداول الثنائي ينطوي على مخاطر عالية
+استثمر فقط ما يمكنك تحمل خسارته
+"""
+        
+        bot.send_message(
             chat_id,
-            "🌍 *اختر اللغة / Choose language:*\n\n"
-            "🤖 بوت الإشارات المالية\n"
-            "📊 تحليل فني دقيق للأسواق",
+            welcome_text,
             reply_markup=keyboard,
             parse_mode='Markdown'
         )
@@ -424,38 +726,43 @@ def help_command(message):
     """معالج أمر المساعدة"""
     try:
         help_text = """
-🤖 *بوت الإشارات المالية v2.0*
+🤖 *بوت التداول الثنائي v3.0*
 
 *📋 الأوامر المتاحة:*
-/start - بدء البوت واختيار اللغة
+/start - بدء البوت
 /help - عرض هذه المساعدة
 /stats - عرض إحصائياتك
 /pair - تغيير الزوج الحالي
 /settings - فتح الإعدادات
-
-*📊 كيفية الاستخدام:*
-1️⃣ اختر اللغة المناسبة
-2️⃣ اختر زوج العملات من القائمة
-3️⃣ احصل على إشارة التداول الفورية
-4️⃣ أو فعّل الإشعارات التلقائية
+/risk - إدارة المخاطر
 
 *💱 الأزواج المتاحة:* 
 {} 
 
-*📈 المؤشرات المستخدمة:*
-• EMA9 & EMA21 - المتوسطات المتحركة
-• RSI - مؤشر القوة النسبية
-• MACD - مؤشر الماكد
-• ADX - مؤشر الاتجاه
+*📈 استراتيجيات التداول:*
+• Standard - استراتيجية قياسية
+• Martingale - مضاعفة بعد الخسارة
+• Fibonacci - استراتيجية فيبوناتشي
 
-*⚠️ تنبيه مهم:*
+*⏱ مدة الصفقات:*
+• 60 ثانية (1 دقيقة)
+• 120 ثانية (2 دقيقة)
+• 300 ثانية (5 دقائق)
+
+*🛡 إدارة المخاطر:*
+• Stop Loss - وقف الخسارة
+• Take Profit - جني الأرباح
+• تحديد حجم الاستثمار
+
+*⚠️ تحذير هام:*
 هذا البوت لأغراض تعليمية فقط
-ليس نصيحة مالية استثمارية
+التداول الثنائي يحمل مخاطر عالية
+استثمر بحكمة ولا تخاطر بأكثر من 2-5% من رأس المال
 
-🔄 *آخر تحديث:* v2.0
+🔄 *آخر تحديث:* v3.0
 """.format(", ".join(PAIRS))
 
-        safe_send_message(
+        bot.send_message(
             message.chat.id,
             help_text,
             parse_mode='Markdown'
@@ -465,28 +772,43 @@ def help_command(message):
 
 @bot.message_handler(commands=["stats"])
 def stats_command(message):
-    """عرض الإحصائيات"""
+    """عرض الإحصائيات المفصلة"""
     try:
         chat_id = message.chat.id
         state = get_user_state(chat_id)
         
-        win_rate = (state.wins / max(state.total_signals, 1)) * 100
         stats_text = f"""
-📊 *إحصائياتك الشخصية*
+📊 *إحصائيات التداول الخاصة بك*
 
-📈 *إجمالي الإشارات:* {state.total_signals}
-🟢 *إشارات شراء:* {state.calls}
-🔴 *إشارات بيع:* {state.puts}
-🏆 *عدد الأرباح:* {state.wins}
-📉 *عدد الخسائر:* {state.losses}
-📊 *نسبة النجاح:* {win_rate:.1f}%
+📈 *إجمالي الصفقات:* {state.total_signals}
+🟢 *صفقات ربح:* {state.wins}
+🔴 *صفقات خسارة:* {state.losses}
+📊 *نسبة الفوز:* {state.win_rate:.1f}%
 
-💱 *الزوج المفضل:* {state.pair}
-⚖️ *مستوى المخاطرة:* {state.risk_level}
-⏱ *الإطار الزمني:* {state.timeframe}
-🔔 *الإشعارات:* {'مفعلة' if state.subscribed else 'معطلة'}
+💰 *الإحصائيات المالية:*
+• إجمالي الاستثمار: ${state.total_invested:.2f}
+• إجمالي الربح: ${state.profit:.2f}
+• العائد على الاستثمار: {(state.profit / max(state.total_invested, 1)) * 100:.1f}%
+
+⚙️ *إعدادات التداول:*
+• الزوج المفضل: {state.pair}
+• مدة الصفقة: {state.expiry_time} ثانية
+• مبلغ الاستثمار: ${state.investment_amount}
+• مستوى المخاطرة: {state.risk_level}
+• استراتيجية التداول: {state.trade_strategy}
+
+📊 *آخر 5 صفقات:*
 """
-        safe_send_message(chat_id, stats_text, parse_mode='Markdown')
+        # عرض آخر 5 صفقات
+        recent_trades = state.trades[-5:]
+        if recent_trades:
+            for trade in recent_trades:
+                result_emoji = "✅" if trade.get('result') == 'win' else "❌" if trade.get('result') == 'loss' else "⏳"
+                stats_text += f"\n{result_emoji} {trade['pair']} | {trade.get('result', 'قيد التنفيذ')} | ${trade.get('profit', 0):.2f}"
+        else:
+            stats_text += "\nلا توجد صفقات حتى الآن"
+        
+        bot.send_message(chat_id, stats_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Error in stats_command: {e}")
 
@@ -508,6 +830,15 @@ def settings_command(message):
     except Exception as e:
         logger.error(f"Error in settings_command: {e}")
 
+@bot.message_handler(commands=["risk"])
+def risk_command(message):
+    """إدارة المخاطر"""
+    try:
+        chat_id = message.chat.id
+        risk_management_menu(chat_id)
+    except Exception as e:
+        logger.error(f"Error in risk_command: {e}")
+
 # =============================================
 # دوال عرض الأزواج
 # =============================================
@@ -525,7 +856,7 @@ def show_pairs_menu(chat_id: int, message_id: Optional[int] = None):
         types.InlineKeyboardButton("🔙 رجوع", callback_data="back")
     )
     
-    text = "💱 *اختر زوج العملات:*"
+    text = "💱 *اختر زوج العملات للتداول:*"
     
     if message_id:
         bot.edit_message_text(
@@ -536,7 +867,7 @@ def show_pairs_menu(chat_id: int, message_id: Optional[int] = None):
             parse_mode='Markdown'
         )
     else:
-        safe_send_message(
+        bot.send_message(
             chat_id,
             text,
             reply_markup=keyboard,
@@ -547,49 +878,13 @@ def show_pairs_menu(chat_id: int, message_id: Optional[int] = None):
 # دوال الإشارات
 # =============================================
 
-def send_signal(chat_id: int, pair: str, analysis: Dict):
-    """إرسال إشارة للمستخدم"""
-    try:
-        state = get_user_state(chat_id)
-        
-        # تحديث الإحصائيات
-        state.total_signals += 1
-        if analysis["signal"] == "CALL":
-            state.calls += 1
-        else:
-            state.puts += 1
-        save_user_state(chat_id)
-        
-        # تنسيق وإرسال الإشارة
-        if analysis["signal"] == "WAIT":
-            message = format_wait_message(pair, analysis)
-        else:
-            message = format_signal_message(pair, analysis, state)
-        
-        safe_send_message(chat_id, message, parse_mode='Markdown')
-        
-        # تحديث آخر إشارة
-        state.last_signal_time = time.time()
-        save_user_state(chat_id)
-        
-    except Exception as e:
-        logger.error(f"Error sending signal: {e}")
-
 def process_signal_request(chat_id: int, pair: str):
     """معالجة طلب الإشارة"""
     try:
-        # التحقق من حد التكرار
-        if not rate_limiter.is_allowed(chat_id, 'signal'):
-            safe_send_message(
-                chat_id,
-                "⏳ تم تجاوز حد الطلبات. انتظر دقيقة ثم حاول مرة أخرى."
-            )
-            return
-        
         # إرسال رسالة انتظار
-        waiting_msg = safe_send_message(
+        waiting_msg = bot.send_message(
             chat_id,
-            "⏳ *جاري تحليل السوق...*\nيرجى الانتظار قليلاً",
+            "⏳ *جاري تحليل السوق...*\nيرجى الانتظار",
             parse_mode='Markdown'
         )
         
@@ -601,376 +896,18 @@ def process_signal_request(chat_id: int, pair: str):
             bot.delete_message(chat_id, waiting_msg.message_id)
             
             if analysis:
-                send_signal(chat_id, pair, analysis)
-            else:
-                safe_send_message(
-                    chat_id,
-                    f"❌ *فشل تحليل الزوج* {pair}\n"
-                    "يرجى المحاولة مرة أخرى لاحقاً",
-                    parse_mode='Markdown'
-                )
+                # تنفيذ صفقة التداول الثنائي
+                result = execute_binary_trade(chat_id, pair, analysis)
                 
-        except Exception as e:
-            logger.error(f"Error analyzing {pair}: {e}")
-            try:
-                bot.delete_message(chat_id, waiting_msg.message_id)
-            except:
-                pass
-            
-            safe_send_message(
-                chat_id,
-                f"❌ *حدث خطأ أثناء التحليل*\n"
-                f"الزوج: {pair}\n"
-                f"الخطأ: {str(e)}\n"
-                f"يرجى المحاولة مرة أخرى",
-                parse_mode='Markdown'
-            )
-            
-    except Exception as e:
-        logger.error(f"Error in process_signal_request: {e}")
-
-# =============================================
-# نظام الإشعارات التلقائية
-# =============================================
-
-notifications_active = True
-notification_thread = None
-
-def run_notification_scheduler():
-    """تشغيل جدول الإشعارات"""
-    global notifications_active
-    while notifications_active:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-        except Exception as e:
-            logger.error(f"Error in notification scheduler: {e}")
-
-def start_notifications(chat_id: int, pair: str, interval: int = NOTIFICATION_INTERVAL):
-    """بدء الإشعارات التلقائية للمستخدم"""
-    def notify():
-        try:
-            state = get_user_state(chat_id)
-            if state.subscribed:
-                analysis = analyze_market(pair)
-                if analysis and analysis.get('signal') in ['CALL', 'PUT']:
-                    send_signal(chat_id, pair, analysis)
-        except Exception as e:
-            logger.error(f"Error in notification: {e}")
-    
-    # إلغاء أي جدولة سابقة
-    schedule.clear(f"notify_{chat_id}")
-    
-    # جدولة الإشعارات الجديدة
-    schedule.every(interval).seconds.do(notify).tag(f"notify_{chat_id}")
-    
-    # بدء الخيط إذا لم يكن قيد التشغيل
-    global notification_thread
-    if notification_thread is None or not notification_thread.is_alive():
-        notification_thread = threading.Thread(
-            target=run_notification_scheduler,
-            daemon=True
-        )
-        notification_thread.start()
-
-def stop_notifications(chat_id: int):
-    """إيقاف الإشعارات التلقائية للمستخدم"""
-    schedule.clear(f"notify_{chat_id}")
-    state = get_user_state(chat_id)
-    state.subscribed = False
-    save_user_state(chat_id)
-
-# =============================================
-# معالج الأزرار (المحسن)
-# =============================================
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    """معالج جميع الأزرار"""
-    try:
-        chat_id = call.message.chat.id
-        message_id = call.message.message_id
-        state = get_user_state(chat_id)
-        
-        # اللغة
-        if call.data == "ar":
-            state.language = "ar"
-            save_user_state(chat_id)
-            bot.edit_message_text(
-                "✅ *تم اختيار العربية*",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            main_menu(chat_id)
-            
-        elif call.data == "en":
-            state.language = "en"
-            save_user_state(chat_id)
-            bot.edit_message_text(
-                "✅ *English selected*",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            main_menu(chat_id)
-        
-        # الأزواج
-        elif call.data == "pairs":
-            show_pairs_menu(chat_id, message_id)
-            
-        elif call.data.startswith("pair_"):
-            pair = call.data.replace("pair_", "")
-            state.pair = pair
-            save_user_state(chat_id)
-            
-            bot.edit_message_text(
-                f"✅ *تم اختيار الزوج*\n💱 {pair}",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            main_menu(chat_id)
-        
-        # الإشارات
-        elif call.data == "signal":
-            pair = state.pair
-            process_signal_request(chat_id, pair)
-            
-        elif call.data == "auto_signal":
-            if state.subscribed:
-                stop_notifications(chat_id)
-                bot.edit_message_text(
-                    "🔕 *تم إيقاف الإشعارات التلقائية*",
-                    chat_id,
-                    message_id,
-                    parse_mode='Markdown'
-                )
-            else:
-                state.subscribed = True
-                save_user_state(chat_id)
-                start_notifications(
-                    chat_id,
-                    state.pair,
-                    state.notification_interval
-                )
-                bot.edit_message_text(
-                    f"🔔 *تم تفعيل الإشعارات التلقائية*\n"
-                    f"💱 الزوج: {state.pair}\n"
-                    f"⏱ كل {state.notification_interval//60} دقيقة",
-                    chat_id,
-                    message_id,
-                    parse_mode='Markdown'
-                )
-            main_menu(chat_id)
-        
-        # الإعدادات
-        elif call.data == "settings":
-            settings_menu(chat_id)
-            
-        elif call.data == "risk_settings":
-            # مستويات المخاطرة
-            keyboard = types.InlineKeyboardMarkup(row_width=3)
-            for risk in ['low', 'medium', 'high']:
-                emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(risk, '⚖️')
-                keyboard.add(
-                    types.InlineKeyboardButton(
-                        f"{emoji} {risk}",
-                        callback_data=f"risk_{risk}"
+                if result['status'] == 'wait':
+                    bot.send_message(
+                        chat_id,
+                        f"⏸ *لا توجد فرصة تداول مناسبة*\n\n"
+                        f"💱 الزوج: {pair}\n"
+                        f"📊 RSI: {analysis.get('rsi', 'N/A')}\n"
+                        f"📊 ADX: {analysis.get('adx', 'N/A')}\n\n"
+                        f"💡 السبب: {result['message']}",
+                        parse_mode='Markdown'
                     )
-                )
-            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
-            
-            bot.edit_message_text(
-                "⚖️ *اختر مستوى المخاطرة:*\n"
-                "🟢 منخفض - إشارات آمنة\n"
-                "🟡 متوسط - توازن بين الأمان والربح\n"
-                "🔴 عالي - إشارات ذات مخاطرة عالية",
-                chat_id,
-                message_id,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-            
-        elif call.data.startswith("risk_"):
-            risk = call.data.replace("risk_", "")
-            state.risk_level = risk
-            save_user_state(chat_id)
-            bot.edit_message_text(
-                f"✅ *تم تعيين مستوى المخاطرة:* {risk}",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            settings_menu(chat_id)
-            
-        elif call.data == "timeframe_settings":
-            keyboard = types.InlineKeyboardMarkup(row_width=3)
-            for tf in ['5m', '15m', '30m', '1h', '4h', '1d']:
-                keyboard.add(
-                    types.InlineKeyboardButton(tf, callback_data=f"tf_{tf}")
-                )
-            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
-            
-            bot.edit_message_text(
-                "⏱ *اختر الإطار الزمني:*",
-                chat_id,
-                message_id,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-            
-        elif call.data.startswith("tf_"):
-            tf = call.data.replace("tf_", "")
-            state.timeframe = tf
-            save_user_state(chat_id)
-            bot.edit_message_text(
-                f"✅ *تم تعيين الإطار الزمني:* {tf}",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            settings_menu(chat_id)
-            
-        elif call.data == "notify_interval":
-            keyboard = types.InlineKeyboardMarkup(row_width=3)
-            for interval in [60, 180, 300, 600, 1800]:  # 1, 3, 5, 10, 30 دقيقة
-                minutes = interval // 60
-                keyboard.add(
-                    types.InlineKeyboardButton(
-                        f"{minutes} دقيقة" if minutes > 0 else f"{interval} ثانية",
-                        callback_data=f"interval_{interval}"
-                    )
-                )
-            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
-            
-            bot.edit_message_text(
-                "⏰ *اختر مدة الإشعارات:*",
-                chat_id,
-                message_id,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-            
-        elif call.data.startswith("interval_"):
-            interval = int(call.data.replace("interval_", ""))
-            state.notification_interval = interval
-            save_user_state(chat_id)
-            
-            # تحديث الإشعارات إذا كانت مفعلة
-            if state.subscribed:
-                start_notifications(chat_id, state.pair, interval)
-            
-            bot.edit_message_text(
-                f"✅ *تم تعيين مدة الإشعارات:* {interval//60} دقيقة" if interval >= 60 else f"✅ *تم تعيين مدة الإشعارات:* {interval} ثانية",
-                chat_id,
-                message_id,
-                parse_mode='Markdown'
-            )
-            settings_menu(chat_id)
-            
-        elif call.data == "toggle_notify":
-            state.subscribed = not state.subscribed
-            save_user_state(chat_id)
-            
-            if state.subscribed:
-                start_notifications(chat_id, state.pair, state.notification_interval)
-                bot.answer_callback_query(
-                    call.id,
-                    "🔔 تم تفعيل الإشعارات",
-                    show_alert=True
-                )
-            else:
-                stop_notifications(chat_id)
-                bot.answer_callback_query(
-                    call.id,
-                    "🔕 تم إيقاف الإشعارات",
-                    show_alert=True
-                )
-            main_menu(chat_id)
-        
-        # الإحصائيات
-        elif call.data == "stats":
-            stats_command(call.message)
-        
-        # المساعدة
-        elif call.data == "help":
-            help_command(call.message)
-        
-        # الرجوع
-        elif call.data == "back":
-            main_menu(chat_id)
-        
-        # أي خيار آخر
-        else:
-            bot.answer_callback_query(
-                call.id,
-                "❌ خيار غير معروف",
-                show_alert=True
-            )
-            
-    except Exception as e:
-        logger.error(f"Error in callback: {e}")
-        try:
-            bot.answer_callback_query(
-                call.id,
-                f"❌ حدث خطأ: {str(e)}",
-                show_alert=True
-            )
-        except:
-            pass
-
-# =============================================
-# معالج الرسائل العامة
-# =============================================
-
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    """معالج جميع الرسائل الأخرى"""
-    try:
-        safe_send_message(
-            message.chat.id,
-            "❓ استخدم /start للبدء أو /help للمساعدة\n"
-            "📊 للحصول على إشارة استخدم القائمة الرئيسية"
-        )
-    except Exception as e:
-        logger.error(f"Error in handle_all_messages: {e}")
-
-# =============================================
-# تشغيل البوت
-# =============================================
-
-def main():
-    """الوظيفة الرئيسية لتشغيل البوت"""
-    try:
-        print("🚀 Bot is running...")
-        logger.info("Bot started successfully")
-        logger.info(f"Available pairs: {PAIRS}")
-        
-        # بدء الإشعارات التلقائية للمستخدمين المفعلين
-        for chat_id_str, user_data in data_store.data.items():
-            if user_data.get('subscribed', False):
-                chat_id = int(chat_id_str)
-                pair = user_data.get('pair', PAIRS[0])
-                interval = user_data.get('notification_interval', NOTIFICATION_INTERVAL)
-                start_notifications(chat_id, pair, interval)
-                logger.info(f"Started notifications for user {chat_id}")
-        
-        # تشغيل البوت
-        bot.infinity_polling(
-            timeout=60,
-            long_polling_timeout=60,
-            skip_pending=True
-        )
-        
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-        print("\n🛑 Bot stopped")
-        
-    except Exception as e:
-        logger.error(f"Bot crashed: {e}")
-        print(f"❌ Error: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
+                else:
+                    # إرسال إشار
