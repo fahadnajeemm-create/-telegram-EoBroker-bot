@@ -161,8 +161,6 @@ def analyze_market(pair):
             print("❌ جميع القيم NaN بعد الحسابات")
             return None
 
-        # ✅ تم إزالة دالة get_price_current لأنها غير مستخدمة
-        
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
@@ -170,28 +168,25 @@ def analyze_market(pair):
         # متوسط ATR لآخر 20 شمعة
         atr_avg = df["atr"].tail(20).mean()
         
-  # فلتر التذبذب
-if last["atr"] < atr_avg * 0.7:
-    print("⚠️ السوق هادئ، تم تجاهل الإشارة")
-    return {
-        "signal": "WAIT",
-        "reason": "السوق متذبذب"
-    }
+        # ✅ تصحيح: فلتر التذبذب
+        if last["atr"] < atr_avg * 0.7:
+            print("⚠️ السوق هادئ، تم تجاهل الإشارة")
+            return {
+                "signal": "WAIT",
+                "reason": "السوق متذبذب"
+            }
 
-# ==========================
-# فلتر القفزة السعرية
-# ==========================
+        # ✅ تصحيح: فلتر القفزة السعرية
+        # متوسط حجم جسم آخر 10 شموع
+        avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
 
-# متوسط حجم جسم آخر 10 شموع
-avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
-
-# إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
-if body > avg_body * 2:
-    print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
-    return {
-        "signal": "WAIT",
-        "reason": "آخر شمعة قوية جداً، احتمال ارتداد"
-    }
+        # إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
+        if body > avg_body * 2:
+            print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
+            return {
+                "signal": "WAIT",
+                "reason": "آخر شمعة قوية جداً، احتمال ارتداد"
+            }
         
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
@@ -363,7 +358,7 @@ def display_signal_formatted(result):
     print(f"💱 الزوج: {result['pair']}")
     print(f"💰 السعر الحالي: {result['price']:.5f}")
     signal_emoji = "🟢" if result['signal'] == "CALL" else "🔴"
-    signal_text = "شراء (CALL)" if result['signal'] == "CALL" else "بيع (PUT)"
+    signal_text = "شراء (CALL)" if result['signal'] == "CALL' else "بيع (PUT)"
     print(f"📊 الإشارة: {signal_emoji} {signal_text}")
     print(f"🔥 قوة الإشارة: {result['strength']}%")
     print("-" * 50)
