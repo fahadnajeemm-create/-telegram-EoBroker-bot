@@ -161,7 +161,9 @@ def analyze_market(pair):
             print("❌ جميع القيم NaN بعد الحسابات")
             return None
 
-        last = df.iloc[-1]
+        last = df.iloc[-1] 
+        prev = df.iloc[-2]
+        
         body = abs(last["close"] - last["open"])
         candle_range = last["high"] - last["low"]
         
@@ -261,6 +263,15 @@ def analyze_market(pair):
                 "signal": "WAIT",
                 "reason": "تعادل المؤشرات"
             }
+
+        # فلتر آخر شمعة
+        if signal == "CALL" and last["close"] < last["open"]:
+            print("⚠️ آخر شمعة هابطة - تم تجاهل الشراء")
+            return None
+
+        if signal == "PUT" and last["close"] > last["open"]:
+            print("⚠️ آخر شمعة صاعدة - تم تجاهل البيع")
+            return None
         
         print(f"📊 نقاط الشراء: {score_buy}, نقاط البيع: {score_sell}")
         print(f"📊 الإشارة الأولية: {signal}")
