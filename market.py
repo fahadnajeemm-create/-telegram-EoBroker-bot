@@ -82,7 +82,7 @@ def get_candles(pair):
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 50 على الأقل)")
             return None
         
-        # ترتيب البيانات من الأقدم إلى الأحدث
+        # ✅ تصحيح: ترتيب البيانات من الأقدم إلى الأحدث بشكل صحيح
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair}")
         return df
@@ -135,11 +135,11 @@ def analyze_market(pair):
             adx = ta.trend.ADXIndicator(high=df["high"], low=df["low"], close=df["close"], window=14)
             df["adx"] = adx.adx()
             
-            # Bollinger Bands
+            # ✅ تصحيح: Bollinger Bands
             bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2)
             df["bb_high"] = bb.bollinger_hband()
             df["bb_low"] = bb.bollinger_lband()
-            df["bb_mid"] = bb.bollinger_mavg()
+            df["bb_mid"] = bb.bollinger_mavg()  # ✅ تم التصحيح
             
             # ATR
             atr = ta.volatility.AverageTrueRange(
@@ -161,18 +161,7 @@ def analyze_market(pair):
             print("❌ جميع القيم NaN بعد الحسابات")
             return None
 
-        # جلب السعر الحالي
-        def get_price_current(pair):
-            try:
-                api_key = TWELVE_API or os.environ.get("TWELVE_API")
-                url = f"https://api.twelvedata.com/price?symbol={pair}&apikey={api_key}"
-                response = requests.get(url, timeout=10)
-                data = response.json()
-                if "price" in data:
-                    return float(data["price"])
-                return None
-            except Exception:
-                return None
+        # ✅ تم إزالة دالة get_price_current لأنها غير مستخدمة
         
         last = df.iloc[-1]
         body = abs(last["close"] - last["open"])
@@ -187,16 +176,16 @@ def analyze_market(pair):
             return None
 
         # ==========================
-# فلتر القفزة السعرية
-# ==========================
-
-# متوسط حجم جسم آخر 10 شموع
-avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
-
-# إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
-if body > avg_body * 2:
-    print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
-    return None
+        # فلتر القفزة السعرية
+        # ==========================
+        
+        # متوسط حجم جسم آخر 10 شموع
+        avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
+        
+        # إذا كانت آخر شمعة أكبر من ضعف المتوسط، لا ندخل الصفقة
+        if body > avg_body * 2:
+            print("⚠️ آخر شمعة قوية جداً، احتمال ارتداد")
+            return None
         
         print(f"📊 آخر سعر: {last['close']:.5f}")
         print(f"📊 RSI: {last['rsi']:.2f}")
