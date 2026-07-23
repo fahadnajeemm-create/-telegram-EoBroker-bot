@@ -1,5 +1,3 @@
-# bot_binary.py - النسخة المحسنة للتداول الثنائي
-
 import telebot
 from telebot import types
 from datetime import datetime, timedelta
@@ -17,14 +15,14 @@ import sys
 import random
 
 # استيراد الإعدادات والدوال
-from config import BOT_TOKEN, PAIRS, LOG_LEVEL, MAX_RETRIES, SIGNAL_TIMEOUT, NOTIFICATION_INTERVAL
+from config import BOT_TOKEN, PAIRS
 from market import analyze_market
 
 # =============================================
-# إعداد التسجيل المحسن
+# إعداد التسجيل
 # =============================================
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('binary_bot.log', encoding='utf-8'),
@@ -44,11 +42,14 @@ class BinaryTradeState:
         self.pair: str = PAIRS[0] if PAIRS else 'EUR/USD'
         self.last_signal_time: float = 0
         self.subscribed: bool = False
-        self.notification_pair: Optional[str] = None
-        self.notification_interval: int = NOTIFICATION_INTERVAL
+        self.notification_interval: int = 300
+        
+        # إعدادات التداول
         self.risk_level: str = 'medium'  # low, medium, high
-        self.timeframe: str = '1m'  # 1m, 5m, 15m, 30m, 1h
-        self.expiry_time: int = 60  # ثانية (1, 2, 5 دقائق)
+        self.expiry_time: int = 60  # ثانية
+        self.investment_amount: float = 10.0
+        self.trade_strategy: str = 'standard'  # standard, martingale, fibonacci
+        self.max_investment: float = 100.0
         
         # إحصائيات التداول
         self.total_signals: int = 0
@@ -63,13 +64,6 @@ class BinaryTradeState:
         # تتبع الصفقات
         self.trades: List[Dict] = []
         self.current_trade: Optional[Dict] = None
-        
-        # إعدادات التداول
-        self.investment_amount: float = 10.0  # المبلغ الافتراضي
-        self.max_investment: float = 100.0
-        self.stop_loss: float = 0.0
-        self.take_profit: float = 0.0
-        self.trade_strategy: str = 'standard'  # standard, martingale, fibonacci
 
 class DataStore:
     """تخزين بيانات المستخدمين"""
@@ -110,7 +104,6 @@ class DataStore:
         return state
     
     def save_user_state(self, chat_id: int, state: BinaryTradeState):
-        # تحويل trades إلى JSON قابل للتخزين
         state_dict = state.__dict__.copy()
         self.update_user(chat_id, state_dict)
 
@@ -138,9 +131,7 @@ class TradeManager:
     def __init__(self, chat_id: int):
         self.chat_id = chat_id
         self.state = get_user_state(chat_id)
-        self.active_trades = []
-        self.completed_trades = []
-        
+    
     def open_trade(self, pair: str, signal: str, price: float, expiry: int, investment: float) -> Dict:
         """فتح صفقة جديدة"""
         trade = {
@@ -181,15 +172,14 @@ class TradeManager:
                 
                 self.state.total_signals += 1
                 self.state.current_trade = None
-                self.update_win_rate()
+                
+                # تحديث نسبة الفوز
+                total = self.state.wins + self.state.losses
+                if total > 0:
+                    self.state.win_rate = (self.state.wins / total) * 100
+                
                 save_user_state(self.chat_id)
                 break
-    
-    def update_win_rate(self):
-        """تحديث نسبة الفوز"""
-        total = self.state.wins + self.state.losses
-        if total > 0:
-            self.state.win_rate = (self.state.wins / total) * 100
     
     def get_active_trades(self) -> List[Dict]:
         """الحصول على الصفقات النشطة"""
@@ -217,12 +207,12 @@ def get_binary_signal(analysis: Dict) -> Dict:
     signal = {
         'direction': 'WAIT',
         'confidence': 0,
-        'expiry': 60,  # دقيقة افتراضية
+        'expiry': 60,
         'reason': '',
         'entry_price': analysis.get('price', 0)
     }
     
-    # معايير الإشارة للتداول الثنائي
+    # استخراج المؤشرات
     rsi = analysis.get('rsi', 50)
     macd = analysis.get('macd', 0)
     adx = analysis.get('adx', 25)
@@ -238,7 +228,7 @@ def get_binary_signal(analysis: Dict) -> Dict:
         strength > 50):
         signal['direction'] = 'CALL'
         signal['confidence'] = min(100, strength + random.randint(0, 10))
-        signal['expiry'] = 60  # 1 دقيقة
+        signal['expiry'] = 60
         signal['reason'] = 'المؤشرات تشير إلى اتجاه صاعد قوي'
     
     # إشارة PUT (بيع)
@@ -249,27 +239,27 @@ def get_binary_signal(analysis: Dict) -> Dict:
           strength > 50):
         signal['direction'] = 'PUT'
         signal['confidence'] = min(100, strength + random.randint(0, 10))
-        signal['expiry'] = 60  # 1 دقيقة
+        signal['expiry'] = 60
         signal['reason'] = 'المؤشرات تشير إلى اتجاه هابط قوي'
     
-    # إشارة CALL مع تشبع شرائي (انعكاس)
+    # إشارة CALL مع تشبع شرائي
     elif (rsi > 70 and 
           macd < 0 and 
           adx > 30 and 
           strength > 60):
         signal['direction'] = 'PUT'
         signal['confidence'] = 70
-        signal['expiry'] = 120  # 2 دقيقة
+        signal['expiry'] = 120
         signal['reason'] = 'تشبع شرائي مع انعكاس محتمل للهبوط'
     
-    # إشارة PUT مع تشبع بيعي (انعكاس)
+    # إشارة PUT مع تشبع بيعي
     elif (rsi < 30 and 
           macd > 0 and 
           adx > 30 and 
           strength > 60):
         signal['direction'] = 'CALL'
         signal['confidence'] = 70
-        signal['expiry'] = 120  # 2 دقيقة
+        signal['expiry'] = 120
         signal['reason'] = 'تشبع بيعي مع انعكاس محتمل للصعود'
     
     else:
@@ -277,6 +267,126 @@ def get_binary_signal(analysis: Dict) -> Dict:
         signal['confidence'] = strength
     
     return signal
+
+# =============================================
+# دوال التداول الثنائي
+# =============================================
+
+def calculate_investment(state: BinaryTradeState) -> float:
+    """حساب مبلغ الاستثمار حسب استراتيجية التداول"""
+    
+    base_amount = state.investment_amount
+    
+    if state.trade_strategy == 'martingale':
+        # مضاعفة المبلغ بعد الخسارة
+        last_trades = state.trades[-5:]
+        losses = sum(1 for t in last_trades if t.get('result') == 'loss')
+        multiplier = 2 ** losses
+        return min(base_amount * multiplier, state.max_investment)
+    
+    elif state.trade_strategy == 'fibonacci':
+        # استراتيجية فيبوناتشي
+        fib_numbers = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
+        losses = sum(1 for t in state.trades[-10:] if t.get('result') == 'loss')
+        idx = min(losses, len(fib_numbers) - 1)
+        return min(base_amount * fib_numbers[idx], state.max_investment)
+    
+    else:  # standard
+        return base_amount
+
+def execute_binary_trade(chat_id: int, pair: str, analysis: Dict, bot_instance) -> Dict:
+    """تنفيذ صفقة تداول ثنائي"""
+    
+    state = get_user_state(chat_id)
+    trade_manager = TradeManager(chat_id)
+    
+    # الحصول على إشارة التداول
+    signal = get_binary_signal(analysis)
+    
+    if signal['direction'] == 'WAIT':
+        return {
+            'status': 'wait',
+            'message': 'لا توجد فرصة تداول مناسبة حالياً',
+            'analysis': analysis
+        }
+    
+    # حساب مبلغ الاستثمار
+    investment = calculate_investment(state)
+    
+    # فتح الصفقة
+    trade = trade_manager.open_trade(
+        pair=pair,
+        signal=signal['direction'],
+        price=signal['entry_price'],
+        expiry=signal['expiry'],
+        investment=investment
+    )
+    
+    # جدولة إغلاق الصفقة
+    schedule_close_trade(chat_id, trade['id'], signal['direction'], signal['entry_price'], bot_instance)
+    
+    return {
+        'status': 'executed',
+        'trade': trade,
+        'signal': signal,
+        'analysis': analysis
+    }
+
+def schedule_close_trade(chat_id: int, trade_id: int, direction: str, entry_price: float, bot_instance):
+    """جدولة إغلاق الصفقة"""
+    
+    state = get_user_state(chat_id)
+    expiry = state.expiry_time
+    
+    def close_trade():
+        try:
+            # محاكاة نتيجة الصفقة
+            result, profit = simulate_trade_result(direction, entry_price)
+            
+            trade_manager = TradeManager(chat_id)
+            trade_manager.close_trade(trade_id, result, profit)
+            
+            # الحصول على الصفقة المغلقة
+            state = get_user_state(chat_id)
+            trade = next((t for t in state.trades if t['id'] == trade_id), None)
+            
+            if trade:
+                # إرسال النتيجة
+                message = format_trade_result(trade, result, profit)
+                try:
+                    bot_instance.send_message(chat_id, message, parse_mode='Markdown')
+                except Exception as e:
+                    logger.error(f"Error sending trade result: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error closing trade: {e}")
+    
+    # جدولة الإغلاق بعد المدة المحددة
+    timer = threading.Timer(expiry, close_trade)
+    timer.daemon = True
+    timer.start()
+
+def simulate_trade_result(direction: str, entry_price: float) -> tuple:
+    """محاكاة نتيجة الصفقة"""
+    
+    # محاكاة حركة السعر
+    price_change = random.uniform(-0.005, 0.005)
+    current_price = entry_price * (1 + price_change)
+    
+    # تحديد النتيجة
+    if direction == 'CALL':
+        win = current_price > entry_price
+    else:  # PUT
+        win = current_price < entry_price
+    
+    # حساب الربح/الخسارة
+    investment = 10.0  # سيتم جلبها من البيانات الفعلية
+    if win:
+        profit = investment * 0.8
+        return 'win', profit
+    else:
+        profit = -investment
+        return 'loss', profit
 
 # =============================================
 # تنسيق رسائل التداول الثنائي
@@ -288,7 +398,6 @@ def format_binary_signal(pair: str, analysis: Dict, signal: Dict, state: BinaryT
     direction_emoji = "🟢" if signal['direction'] == 'CALL' else "🔴" if signal['direction'] == 'PUT' else "⏸"
     direction_text = "شراء (CALL)" if signal['direction'] == 'CALL' else "بيع (PUT)" if signal['direction'] == 'PUT' else "انتظار"
     
-    # تحديد مستوى الثقة
     confidence = signal['confidence']
     if confidence >= 80:
         confidence_level = "🔥 عالية جداً"
@@ -299,28 +408,14 @@ def format_binary_signal(pair: str, analysis: Dict, signal: Dict, state: BinaryT
     else:
         confidence_level = "👀 منخفضة"
     
-    # معلومات التداول
     expiry_minutes = signal['expiry'] // 60
     expiry_text = f"{expiry_minutes} دقيقة" if expiry_minutes > 0 else f"{signal['expiry']} ثانية"
-    
-    # إحصائيات المستخدم
-    win_rate = state.win_rate
-    profit = state.profit
-    
-    # نصائح لإدارة المخاطر
-    risk_advice = ""
-    if state.risk_level == 'low':
-        risk_advice = "🟢 مخاطرة منخفضة - استثمر جزء صغير من رأس المال"
-    elif state.risk_level == 'medium':
-        risk_advice = "🟡 مخاطرة متوسطة - استثمر بحذر مع إدارة المخاطر"
-    else:
-        risk_advice = "🔴 مخاطرة عالية - استثمر فقط إذا كنت مستعداً للمخاطرة"
     
     return f"""
 {direction_emoji} *إشارة تداول ثنائي*
 
 📊 *الزوج:* {pair}
-💰 *سعر الدخول:* {signal['entry_price']}
+💰 *سعر الدخول:* {signal['entry_price']:.5f}
 🎯 *الاتجاه:* {direction_text}
 📈 *الثقة:* {confidence}% ({confidence_level})
 
@@ -338,13 +433,8 @@ def format_binary_signal(pair: str, analysis: Dict, signal: Dict, state: BinaryT
 📊 *إحصائياتك:*
 • إجمالي الصفقات: {state.total_signals}
 • أرباح: {state.wins} | خسائر: {state.losses}
-• نسبة الفوز: {win_rate:.1f}%
-• الربح الإجمالي: ${profit:.2f}
-
-💡 *نصائح التداول:*
-{risk_advice}
-• استخدم وقف الخسارة المناسب
-• لا تخاطر بأكثر من 2-5% من رأس المال
+• نسبة الفوز: {state.win_rate:.1f}%
+• الربح الإجمالي: ${state.profit:.2f}
 
 ⚠️ *تحذير:* التداول الثنائي ينطوي على مخاطر عالية
 """
@@ -361,14 +451,13 @@ def format_trade_result(trade: Dict, result: str, profit: float) -> str:
         status = "خسارة"
         color = "🔴"
     
-    # حساب نسبة الربح/الخسارة
-    roi = (profit / trade['investment']) * 100
+    roi = (profit / trade['investment']) * 100 if trade['investment'] > 0 else 0
     
     return f"""
 {emoji} *نتيجة الصفقة - {status}*
 
 {color} *الزوج:* {trade['pair']}
-💰 *المبلغ المستثمر:* ${trade['investment']}
+💰 *المبلغ المستثمر:* ${trade['investment']:.2f}
 📊 *النتيجة:* {status} ({roi:.1f}%)
 {'✅' if result == 'win' else '❌'} *الربح/الخسارة:* ${profit:.2f}
 
@@ -376,157 +465,10 @@ def format_trade_result(trade: Dict, result: str, profit: float) -> str:
 ⏰ *وقت الخروج:* {datetime.now(ZoneInfo('Asia/Riyadh')).strftime('%Y-%m-%d %H:%M:%S')}
 
 📈 *نصيحة:* {
-    'استمر بنفس الاستراتيجية' if result == 'win' else 
-    'راجع استراتيجيتك وحاول مرة أخرى'
+    '🌟 استمر بنفس الاستراتيجية' if result == 'win' else 
+    '💡 راجع استراتيجيتك وحاول مرة أخرى'
 }
 """
-
-# =============================================
-# دوال التداول الثنائي
-# =============================================
-
-def execute_binary_trade(chat_id: int, pair: str, analysis: Dict) -> Dict:
-    """تنفيذ صفقة تداول ثنائي"""
-    
-    state = get_user_state(chat_id)
-    trade_manager = TradeManager(chat_id)
-    
-    # الحصول على إشارة التداول
-    signal = get_binary_signal(analysis)
-    
-    if signal['direction'] == 'WAIT':
-        return {
-            'status': 'wait',
-            'message': 'لا توجد فرصة تداول مناسبة حالياً',
-            'analysis': analysis
-        }
-    
-    # حساب مبلغ الاستثمار حسب استراتيجية التداول
-    investment = calculate_investment(state)
-    
-    # فتح الصفقة
-    trade = trade_manager.open_trade(
-        pair=pair,
-        signal=signal['direction'],
-        price=signal['entry_price'],
-        expiry=signal['expiry'],
-        investment=investment
-    )
-    
-    # جدولة إغلاق الصفقة
-    schedule_close_trade(chat_id, trade['id'], signal['direction'], signal['entry_price'])
-    
-    return {
-        'status': 'executed',
-        'trade': trade,
-        'signal': signal,
-        'analysis': analysis
-    }
-
-def calculate_investment(state: BinaryTradeState) -> float:
-    """حساب مبلغ الاستثمار حسب استراتيجية التداول"""
-    
-    base_amount = state.investment_amount
-    
-    if state.trade_strategy == 'martingale':
-        # مضاعفة المبلغ بعد الخسارة
-        last_trades = state.trades[-5:]  # آخر 5 صفقات
-        losses = sum(1 for t in last_trades if t.get('result') == 'loss')
-        return base_amount * (2 ** losses)
-    
-    elif state.trade_strategy == 'fibonacci':
-        # استراتيجية فيبوناتشي
-        fib_numbers = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55]
-        losses = sum(1 for t in state.trades[-10:] if t.get('result') == 'loss')
-        idx = min(losses, len(fib_numbers) - 1)
-        return base_amount * fib_numbers[idx]
-    
-    else:  # standard
-        return base_amount
-
-def schedule_close_trade(chat_id: int, trade_id: int, direction: str, entry_price: float):
-    """جدولة إغلاق الصفقة"""
-    
-    state = get_user_state(chat_id)
-    expiry = state.expiry_time
-    
-    def close_trade():
-        try:
-            # محاكاة نتيجة الصفقة (في الواقع ستأتي من مزود البيانات)
-            # هنا نستخدم محاكاة بسيطة للتوضيح
-            result, profit = simulate_trade_result(direction, entry_price)
-            
-            trade_manager = TradeManager(chat_id)
-            trade_manager.close_trade(trade_id, result, profit)
-            
-            # إرسال النتيجة للمستخدم
-            trade = next((t for t in state.trades if t['id'] == trade_id), None)
-            if trade:
-                bot.send_message(
-                    chat_id,
-                    format_trade_result(trade, result, profit),
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            logger.error(f"Error closing trade: {e}")
-    
-    # جدولة الإغلاق بعد المدة المحددة
-    threading.Timer(expiry, close_trade).start()
-
-def simulate_trade_result(direction: str, entry_price: float) -> tuple:
-    """محاكاة نتيجة الصفقة (للتجربة)"""
-    
-    # في النسخة الحقيقية، سيتم جلب السعر الحقيقي من السوق
-    # هذه محاكاة فقط للتوضيح
-    
-    # محاكاة حركة السعر
-    price_change = random.uniform(-0.005, 0.005)  # تغيير عشوائي
-    current_price = entry_price * (1 + price_change)
-    
-    # تحديد النتيجة
-    if direction == 'CALL':
-        win = current_price > entry_price
-    else:  # PUT
-        win = current_price < entry_price
-    
-    # حساب الربح/الخسارة (نسبة 80% للربح، 100% للخسارة)
-    investment = 10.0  # سيتم جلبها من البيانات الفعلية
-    if win:
-        profit = investment * 0.8  # 80% ربح
-        return 'win', profit
-    else:
-        profit = -investment
-        return 'loss', profit
-
-# =============================================
-# دوال إدارة المخاطر
-# =============================================
-
-def get_risk_advice(state: BinaryTradeState) -> str:
-    """الحصول على نصائح إدارة المخاطر"""
-    
-    advice = []
-    
-    # تحليل نسبة الفوز
-    if state.win_rate < 40:
-        advice.append("⚠️ نسبة الفوز منخفضة - قلل حجم الاستثمار")
-    elif state.win_rate > 70:
-        advice.append("🌟 نسبة الفوز ممتازة - استمر بنفس الاستراتيجية")
-    
-    # تحليل الربح/الخسارة
-    if state.profit < -100:
-        advice.append("🔴 خسائر كبيرة - توقف عن التداول وراجع استراتيجيتك")
-    elif state.profit > 100:
-        advice.append("🟢 أرباح جيدة - احتفل ولكن استمر بحذر")
-    
-    # نصائح عامة
-    if state.total_signals > 20 and state.win_rate < 50:
-        advice.append("💡 جرب تغيير استراتيجيتك أو زوج العملات")
-    
-    if state.total_signals > 50:
-        advice.append("📊 لديك خبرة جيدة - استمر في تحسين استراتيجيتك")
-    
-    return "\n".join(advice) if advice else "👍 استمر في التداول بحذر"
 
 # =============================================
 # إعداد البوت
@@ -535,7 +477,7 @@ def get_risk_advice(state: BinaryTradeState) -> str:
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # =============================================
-# دوال القوائم للتداول الثنائي
+# دوال القوائم
 # =============================================
 
 def main_menu(chat_id: int):
@@ -544,35 +486,29 @@ def main_menu(chat_id: int):
         state = get_user_state(chat_id)
         keyboard = types.InlineKeyboardMarkup(row_width=2)
         
-        # الصف الأول - التداول
         keyboard.add(
             types.InlineKeyboardButton("📊 إشارة تداول", callback_data="signal"),
             types.InlineKeyboardButton("💱 تغيير الزوج", callback_data="pairs")
         )
         
-        # الصف الثاني - الإعدادات
         keyboard.add(
             types.InlineKeyboardButton("⚙️ إعدادات التداول", callback_data="settings"),
             types.InlineKeyboardButton("📈 إحصائياتي", callback_data="stats")
         )
         
-        # الصف الثالث - الإشعارات
         notify_status = "🔔 مفعل" if state.subscribed else "🔕 معطل"
         keyboard.add(
             types.InlineKeyboardButton(f"الإشعارات: {notify_status}", callback_data="toggle_notify")
         )
         
-        # الصف الرابع - المخاطرة والمساعدة
         keyboard.add(
             types.InlineKeyboardButton("🛡 إدارة المخاطر", callback_data="risk_management"),
             types.InlineKeyboardButton("ℹ️ مساعدة", callback_data="help")
         )
         
-        # معلومات المستخدم
         user_info = f"""
 🏠 *القائمة الرئيسية - تداول ثنائي*
 
-👤 المستخدم: {chat_id}
 💱 الزوج الحالي: {state.pair}
 ⏱ مدة الصفقة: {state.expiry_time} ثانية
 💰 المبلغ الافتراضي: ${state.investment_amount}
@@ -603,7 +539,6 @@ def settings_menu(chat_id: int):
     state = get_user_state(chat_id)
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     
-    # إعدادات التداول
     keyboard.add(
         types.InlineKeyboardButton(
             f"💰 المبلغ: ${state.investment_amount}",
@@ -629,219 +564,15 @@ def settings_menu(chat_id: int):
         )
     )
     keyboard.add(
-        types.InlineKeyboardButton(
-            f"🔔 الإشعارات: {'مفعل' if state.subscribed else 'معطل'}",
-            callback_data="toggle_notify"
-        )
-    )
-    keyboard.add(
         types.InlineKeyboardButton("🔙 رجوع", callback_data="back")
     )
     
     bot.send_message(
         chat_id,
-        "⚙️ *إعدادات التداول الثنائي*\n"
-        "قم بتخصيص إعدادات التداول الخاصة بك:",
+        "⚙️ *إعدادات التداول الثنائي*\nقم بتخصيص إعدادات التداول الخاصة بك:",
         reply_markup=keyboard,
         parse_mode='Markdown'
     )
-
-def risk_management_menu(chat_id: int):
-    """قائمة إدارة المخاطر"""
-    state = get_user_state(chat_id)
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    
-    keyboard.add(
-        types.InlineKeyboardButton("🛑 وقف الخسارة", callback_data="set_stop_loss"),
-        types.InlineKeyboardButton("🎯 جني الأرباح", callback_data="set_take_profit")
-    )
-    keyboard.add(
-        types.InlineKeyboardButton("📊 نصائح المخاطرة", callback_data="risk_tips"),
-        types.InlineKeyboardButton("🔄 إعادة تعيين", callback_data="reset_settings")
-    )
-    keyboard.add(
-        types.InlineKeyboardButton("🔙 رجوع", callback_data="back")
-    )
-    
-    # عرض حالة المخاطرة الحالية
-    risk_advice = get_risk_advice(state)
-    
-    bot.send_message(
-        chat_id,
-        f"🛡 *إدارة المخاطر*\n\n"
-        f"📊 *حالتك الحالية:*\n"
-        f"• نسبة الفوز: {state.win_rate:.1f}%\n"
-        f"• إجمالي الربح: ${state.profit:.2f}\n"
-        f"• عدد الصفقات: {state.total_signals}\n\n"
-        f"💡 *نصائح:*\n{risk_advice}\n\n"
-        f"اختر من القائمة:",
-        reply_markup=keyboard,
-        parse_mode='Markdown'
-    )
-
-# =============================================
-# معالجة الأوامر
-# =============================================
-
-@bot.message_handler(commands=["start"])
-def start(message):
-    """معالج أمر البدء"""
-    try:
-        chat_id = message.chat.id
-        keyboard = types.InlineKeyboardMarkup(row_width=2)
-        
-        keyboard.add(
-            types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
-            types.InlineKeyboardButton("English 🇬🇧", callback_data="en")
-        )
-        
-        welcome_text = """
-🌍 *اختر اللغة / Choose language:*
-
-🤖 *بوت التداول الثنائي v3.0*
-
-📊 *مميزات البوت:*
-• تحليل فني دقيق للأسواق
-• إشارات تداول ثنائي احترافية
-• إدارة متقدمة للمخاطر
-• إحصائيات دقيقة للأداء
-• إشعارات تلقائية للصفقات
-
-⚠️ *تنبيه مهم:* 
-التداول الثنائي ينطوي على مخاطر عالية
-استثمر فقط ما يمكنك تحمل خسارته
-"""
-        
-        bot.send_message(
-            chat_id,
-            welcome_text,
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        logger.error(f"Error in start: {e}")
-
-@bot.message_handler(commands=["help"])
-def help_command(message):
-    """معالج أمر المساعدة"""
-    try:
-        help_text = """
-🤖 *بوت التداول الثنائي v3.0*
-
-*📋 الأوامر المتاحة:*
-/start - بدء البوت
-/help - عرض هذه المساعدة
-/stats - عرض إحصائياتك
-/pair - تغيير الزوج الحالي
-/settings - فتح الإعدادات
-/risk - إدارة المخاطر
-
-*💱 الأزواج المتاحة:* 
-{} 
-
-*📈 استراتيجيات التداول:*
-• Standard - استراتيجية قياسية
-• Martingale - مضاعفة بعد الخسارة
-• Fibonacci - استراتيجية فيبوناتشي
-
-*⏱ مدة الصفقات:*
-• 60 ثانية (1 دقيقة)
-• 120 ثانية (2 دقيقة)
-• 300 ثانية (5 دقائق)
-
-*🛡 إدارة المخاطر:*
-• Stop Loss - وقف الخسارة
-• Take Profit - جني الأرباح
-• تحديد حجم الاستثمار
-
-*⚠️ تحذير هام:*
-هذا البوت لأغراض تعليمية فقط
-التداول الثنائي يحمل مخاطر عالية
-استثمر بحكمة ولا تخاطر بأكثر من 2-5% من رأس المال
-
-🔄 *آخر تحديث:* v3.0
-""".format(", ".join(PAIRS))
-
-        bot.send_message(
-            message.chat.id,
-            help_text,
-            parse_mode='Markdown'
-        )
-    except Exception as e:
-        logger.error(f"Error in help_command: {e}")
-
-@bot.message_handler(commands=["stats"])
-def stats_command(message):
-    """عرض الإحصائيات المفصلة"""
-    try:
-        chat_id = message.chat.id
-        state = get_user_state(chat_id)
-        
-        stats_text = f"""
-📊 *إحصائيات التداول الخاصة بك*
-
-📈 *إجمالي الصفقات:* {state.total_signals}
-🟢 *صفقات ربح:* {state.wins}
-🔴 *صفقات خسارة:* {state.losses}
-📊 *نسبة الفوز:* {state.win_rate:.1f}%
-
-💰 *الإحصائيات المالية:*
-• إجمالي الاستثمار: ${state.total_invested:.2f}
-• إجمالي الربح: ${state.profit:.2f}
-• العائد على الاستثمار: {(state.profit / max(state.total_invested, 1)) * 100:.1f}%
-
-⚙️ *إعدادات التداول:*
-• الزوج المفضل: {state.pair}
-• مدة الصفقة: {state.expiry_time} ثانية
-• مبلغ الاستثمار: ${state.investment_amount}
-• مستوى المخاطرة: {state.risk_level}
-• استراتيجية التداول: {state.trade_strategy}
-
-📊 *آخر 5 صفقات:*
-"""
-        # عرض آخر 5 صفقات
-        recent_trades = state.trades[-5:]
-        if recent_trades:
-            for trade in recent_trades:
-                result_emoji = "✅" if trade.get('result') == 'win' else "❌" if trade.get('result') == 'loss' else "⏳"
-                stats_text += f"\n{result_emoji} {trade['pair']} | {trade.get('result', 'قيد التنفيذ')} | ${trade.get('profit', 0):.2f}"
-        else:
-            stats_text += "\nلا توجد صفقات حتى الآن"
-        
-        bot.send_message(chat_id, stats_text, parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"Error in stats_command: {e}")
-
-@bot.message_handler(commands=["pair"])
-def pair_command(message):
-    """تغيير الزوج"""
-    try:
-        chat_id = message.chat.id
-        show_pairs_menu(chat_id)
-    except Exception as e:
-        logger.error(f"Error in pair_command: {e}")
-
-@bot.message_handler(commands=["settings"])
-def settings_command(message):
-    """فتح الإعدادات"""
-    try:
-        chat_id = message.chat.id
-        settings_menu(chat_id)
-    except Exception as e:
-        logger.error(f"Error in settings_command: {e}")
-
-@bot.message_handler(commands=["risk"])
-def risk_command(message):
-    """إدارة المخاطر"""
-    try:
-        chat_id = message.chat.id
-        risk_management_menu(chat_id)
-    except Exception as e:
-        logger.error(f"Error in risk_command: {e}")
-
-# =============================================
-# دوال عرض الأزواج
-# =============================================
 
 def show_pairs_menu(chat_id: int, message_id: Optional[int] = None):
     """عرض قائمة الأزواج"""
@@ -875,39 +606,367 @@ def show_pairs_menu(chat_id: int, message_id: Optional[int] = None):
         )
 
 # =============================================
-# دوال الإشارات
+# معالجة الأوامر
 # =============================================
 
-def process_signal_request(chat_id: int, pair: str):
-    """معالجة طلب الإشارة"""
+@bot.message_handler(commands=["start"])
+def start(message):
     try:
-        # إرسال رسالة انتظار
-        waiting_msg = bot.send_message(
-            chat_id,
-            "⏳ *جاري تحليل السوق...*\nيرجى الانتظار",
-            parse_mode='Markdown'
+        chat_id = message.chat.id
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        
+        keyboard.add(
+            types.InlineKeyboardButton("العربية 🇸🇦", callback_data="ar"),
+            types.InlineKeyboardButton("English 🇬🇧", callback_data="en")
         )
         
-        try:
-            # تحليل السوق
-            analysis = analyze_market(pair)
+        welcome_text = """
+🌍 *اختر اللغة / Choose language:*
+
+🤖 *بوت التداول الثنائي v3.0*
+
+📊 *مميزات البوت:*
+• تحليل فني دقيق للأسواق
+• إشارات تداول ثنائي احترافية
+• إدارة متقدمة للمخاطر
+• إحصائيات دقيقة للأداء
+
+⚠️ *تنبيه مهم:* 
+التداول الثنائي ينطوي على مخاطر عالية
+استثمر فقط ما يمكنك تحمل خسارته
+"""
+        
+        bot.send_message(
+            chat_id,
+            welcome_text,
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Error in start: {e}")
+
+@bot.message_handler(commands=["help"])
+def help_command(message):
+    try:
+        help_text = """
+🤖 *بوت التداول الثنائي v3.0*
+
+*📋 الأوامر المتاحة:*
+/start - بدء البوت
+/help - عرض هذه المساعدة
+/stats - عرض إحصائياتك
+
+*💱 الأزواج المتاحة:* 
+{} 
+
+*⏱ مدة الصفقات:*
+• 60 ثانية (1 دقيقة)
+• 120 ثانية (2 دقيقة)
+• 300 ثانية (5 دقائق)
+
+*⚠️ تحذير هام:*
+هذا البوت لأغراض تعليمية فقط
+التداول الثنائي يحمل مخاطر عالية
+استثمر بحكمة
+""".format(", ".join(PAIRS))
+
+        bot.send_message(
+            message.chat.id,
+            help_text,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Error in help_command: {e}")
+
+@bot.message_handler(commands=["stats"])
+def stats_command(message):
+    try:
+        chat_id = message.chat.id
+        state = get_user_state(chat_id)
+        
+        stats_text = f"""
+📊 *إحصائيات التداول الخاصة بك*
+
+📈 *إجمالي الصفقات:* {state.total_signals}
+🟢 *صفقات ربح:* {state.wins}
+🔴 *صفقات خسارة:* {state.losses}
+📊 *نسبة الفوز:* {state.win_rate:.1f}%
+
+💰 *الإحصائيات المالية:*
+• إجمالي الاستثمار: ${state.total_invested:.2f}
+• إجمالي الربح: ${state.profit:.2f}
+• العائد على الاستثمار: {(state.profit / max(state.total_invested, 1)) * 100:.1f}%
+
+⚙️ *إعدادات التداول:*
+• الزوج المفضل: {state.pair}
+• مدة الصفقة: {state.expiry_time} ثانية
+• مبلغ الاستثمار: ${state.investment_amount}
+• مستوى المخاطرة: {state.risk_level}
+• استراتيجية التداول: {state.trade_strategy}
+
+📊 *آخر 5 صفقات:*
+"""
+        recent_trades = state.trades[-5:]
+        if recent_trades:
+            for trade in recent_trades:
+                result_emoji = "✅" if trade.get('result') == 'win' else "❌" if trade.get('result') == 'loss' else "⏳"
+                stats_text += f"\n{result_emoji} {trade['pair']} | {trade.get('result', 'قيد التنفيذ')} | ${trade.get('profit', 0):.2f}"
+        else:
+            stats_text += "\nلا توجد صفقات حتى الآن"
+        
+        bot.send_message(chat_id, stats_text, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Error in stats_command: {e}")
+
+# =============================================
+# معالج الأزرار
+# =============================================
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    try:
+        chat_id = call.message.chat.id
+        message_id = call.message.message_id
+        state = get_user_state(chat_id)
+        
+        # معالجة اللغة
+        if call.data == "ar":
+            state.language = "ar"
+            save_user_state(chat_id)
+            bot.edit_message_text(
+                "✅ *تم اختيار العربية*",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            main_menu(chat_id)
             
-            # حذف رسالة الانتظار
-            bot.delete_message(chat_id, waiting_msg.message_id)
+        elif call.data == "en":
+            state.language = "en"
+            save_user_state(chat_id)
+            bot.edit_message_text(
+                "✅ *English selected*",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            main_menu(chat_id)
+        
+        # معالجة الأزواج
+        elif call.data == "pairs":
+            show_pairs_menu(chat_id, message_id)
             
-            if analysis:
-                # تنفيذ صفقة التداول الثنائي
-                result = execute_binary_trade(chat_id, pair, analysis)
+        elif call.data.startswith("pair_"):
+            pair = call.data.replace("pair_", "")
+            state.pair = pair
+            save_user_state(chat_id)
+            
+            bot.edit_message_text(
+                f"✅ *تم اختيار الزوج*\n💱 {pair}",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            main_menu(chat_id)
+        
+        # معالجة الإشارات
+        elif call.data == "signal":
+            pair = state.pair
+            
+            waiting_msg = bot.send_message(
+                chat_id,
+                "⏳ *جاري تحليل السوق...*\nيرجى الانتظار",
+                parse_mode='Markdown'
+            )
+            
+            try:
+                analysis = analyze_market(pair)
+                bot.delete_message(chat_id, waiting_msg.message_id)
                 
-                if result['status'] == 'wait':
+                if analysis:
+                    result = execute_binary_trade(chat_id, pair, analysis, bot)
+                    
+                    if result['status'] == 'wait':
+                        bot.send_message(
+                            chat_id,
+                            f"⏸ *لا توجد فرصة تداول مناسبة*\n\n"
+                            f"💱 الزوج: {pair}\n"
+                            f"💡 السبب: {result['message']}",
+                            parse_mode='Markdown'
+                        )
+                    else:
+                        signal_msg = format_binary_signal(
+                            pair,
+                            result['analysis'],
+                            result['signal'],
+                            state
+                        )
+                        bot.send_message(chat_id, signal_msg, parse_mode='Markdown')
+                else:
                     bot.send_message(
                         chat_id,
-                        f"⏸ *لا توجد فرصة تداول مناسبة*\n\n"
-                        f"💱 الزوج: {pair}\n"
-                        f"📊 RSI: {analysis.get('rsi', 'N/A')}\n"
-                        f"📊 ADX: {analysis.get('adx', 'N/A')}\n\n"
-                        f"💡 السبب: {result['message']}",
+                        f"❌ *خطأ في تحليل الزوج* {pair}",
                         parse_mode='Markdown'
                     )
-                else:
-                    # إرسال إشار
+                    
+            except Exception as e:
+                logger.error(f"Error in signal processing: {e}")
+                try:
+                    bot.delete_message(chat_id, waiting_msg.message_id)
+                except:
+                    pass
+                bot.send_message(
+                    chat_id,
+                    f"❌ *حدث خطأ أثناء التحليل*\n{str(e)}",
+                    parse_mode='Markdown'
+                )
+        
+        # معالجة الإعدادات
+        elif call.data == "settings":
+            settings_menu(chat_id)
+            
+        elif call.data == "investment_amount":
+            keyboard = types.InlineKeyboardMarkup(row_width=3)
+            for amount in [5, 10, 25, 50, 100]:
+                keyboard.add(
+                    types.InlineKeyboardButton(f"${amount}", callback_data=f"inv_{amount}")
+                )
+            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
+            
+            bot.edit_message_text(
+                "💰 *اختر مبلغ الاستثمار:*",
+                chat_id,
+                message_id,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            
+        elif call.data.startswith("inv_"):
+            amount = float(call.data.replace("inv_", ""))
+            state.investment_amount = amount
+            save_user_state(chat_id)
+            bot.edit_message_text(
+                f"✅ *تم تعيين مبلغ الاستثمار:* ${amount}",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            settings_menu(chat_id)
+            
+        elif call.data == "expiry_time":
+            keyboard = types.InlineKeyboardMarkup(row_width=3)
+            for time in [60, 120, 300]:
+                minutes = time // 60
+                label = f"{minutes} دقيقة" if minutes > 0 else f"{time} ثانية"
+                keyboard.add(
+                    types.InlineKeyboardButton(label, callback_data=f"exp_{time}")
+                )
+            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
+            
+            bot.edit_message_text(
+                "⏱ *اختر مدة الصفقة:*",
+                chat_id,
+                message_id,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            
+        elif call.data.startswith("exp_"):
+            expiry = int(call.data.replace("exp_", ""))
+            state.expiry_time = expiry
+            save_user_state(chat_id)
+            minutes = expiry // 60
+            label = f"{minutes} دقيقة" if minutes > 0 else f"{expiry} ثانية"
+            bot.edit_message_text(
+                f"✅ *تم تعيين مدة الصفقة:* {label}",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            settings_menu(chat_id)
+            
+        elif call.data == "risk_level":
+            keyboard = types.InlineKeyboardMarkup(row_width=3)
+            for risk in ['low', 'medium', 'high']:
+                emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}.get(risk, '⚖️')
+                keyboard.add(
+                    types.InlineKeyboardButton(
+                        f"{emoji} {risk}",
+                        callback_data=f"risk_{risk}"
+                    )
+                )
+            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
+            
+            bot.edit_message_text(
+                "⚖️ *اختر مستوى المخاطرة:*\n"
+                "🟢 منخفض - استثمار آمن\n"
+                "🟡 متوسط - توازن\n"
+                "🔴 عالي - مخاطرة عالية",
+                chat_id,
+                message_id,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            
+        elif call.data.startswith("risk_"):
+            risk = call.data.replace("risk_", "")
+            state.risk_level = risk
+            save_user_state(chat_id)
+            bot.edit_message_text(
+                f"✅ *تم تعيين مستوى المخاطرة:* {risk}",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            settings_menu(chat_id)
+            
+        elif call.data == "trade_strategy":
+            keyboard = types.InlineKeyboardMarkup(row_width=2)
+            keyboard.add(
+                types.InlineKeyboardButton("📊 Standard", callback_data="strat_standard"),
+                types.InlineKeyboardButton("📈 Martingale", callback_data="strat_martingale"),
+                types.InlineKeyboardButton("🔢 Fibonacci", callback_data="strat_fibonacci")
+            )
+            keyboard.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="settings"))
+            
+            bot.edit_message_text(
+                "📊 *اختر استراتيجية التداول:*\n"
+                "• Standard - استراتيجية قياسية\n"
+                "• Martingale - مضاعفة بعد الخسارة\n"
+                "• Fibonacci - استراتيجية فيبوناتشي",
+                chat_id,
+                message_id,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            
+        elif call.data.startswith("strat_"):
+            strategy = call.data.replace("strat_", "")
+            state.trade_strategy = strategy
+            save_user_state(chat_id)
+            bot.edit_message_text(
+                f"✅ *تم تعيين استراتيجية التداول:* {strategy}",
+                chat_id,
+                message_id,
+                parse_mode='Markdown'
+            )
+            settings_menu(chat_id)
+            
+        elif call.data == "toggle_notify":
+            state.subscribed = not state.subscribed
+            save_user_state(chat_id)
+            status = "مفعلة" if state.subscribed else "معطلة"
+            bot.answer_callback_query(
+                call.id,
+                f"🔔 الإشعارات {status}",
+                show_alert=True
+            )
+            main_menu(chat_id)
+            
+        elif call.data == "risk_management":
+            risk_management_menu(chat_id, message_id)
+            
+        elif call.data == "stats":
+            stats_command(call.message)
+            
+        elif call.data == "help":
