@@ -544,13 +544,13 @@ def analyze_market(pair):
                 "strength": 0,
                 "duration": 0,
                 "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5) if "ema9" in df.columns else 0,
-                "ema21": round(last["ema21"], 5) if "ema21" in df.columns else 0,
-                "rsi": round(last["rsi"], 2) if "rsi" in df.columns else 0,
-                "macd": round(last["macd"], 5) if "macd" in df.columns else 0,
-                "macd_signal": round(last["macd_signal"], 5) if "macd_signal" in df.columns else 0,
-                "adx": round(last["adx"], 2) if "adx" in df.columns else 0,
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "ema9": 0,
+                "ema21": 0,
+                "rsi": 0,
+                "macd": 0,
+                "macd_signal": 0,
+                "adx": 0,
+                "atr": 0,
                 "reason": "اتجاه 5 دقائق محايد",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
@@ -719,3 +719,24 @@ def analyze_market(pair):
         
         print(f"📊 نقاط المؤشرات: {ind_score:.1f}/{ind_max}")
         all_reasons.extend(ind_reasons)
+        
+        # المرحلة 6: حساب القوة
+        print("\n🔍 المرحلة 6: حساب قوة الإشارة")
+        
+        strength = calculate_strength(
+            direction,
+            trend_score,
+            pa_score,
+            sr_score,
+            ind_score
+        )
+        
+        print(f"📊 قوة الإشارة: {strength}%")
+        
+        # تحديد الإشارة
+        if strength >= 90:
+            signal = "CALL" if direction == "BULLISH" else "PUT"
+            duration = 30
+            quality = "قوية جداً"
+        elif strength >= 80:
+            signal = "CALL" if direction == "BULLISH" else
