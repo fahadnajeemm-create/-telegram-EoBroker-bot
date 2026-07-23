@@ -230,7 +230,7 @@ def trend_analysis(df, last, atr):
     """المرحلة 2: تحديد الاتجاه مع وزن 30%"""
     reasons = []
     score = 0
-    max_score = 5  # زيادة لاستيعاب EMA200
+    max_score = 5
     
     # 2.1 EMA9 فوق/تحت EMA21
     if last["ema9"] > last["ema21"]:
@@ -283,7 +283,7 @@ def trend_analysis(df, last, atr):
 # المرحلة 3: تحليل Price Action (محسّن)
 # =============================================
 def price_action_analysis(df, last):
-    """المرحلة 3: تحليل Price Action مع وزن 25% - يعطي نقاط بدلاً من الرفض"""
+    """المرحلة 3: تحليل Price Action مع وزن 25%"""
     reasons = []
     pattern = None
     score = 0
@@ -362,17 +362,14 @@ def support_resistance_analysis(df, last):
     score = 0
     max_score = 4
     
-    # استخدام Pivot Points بدلاً من القيم البسيطة
     pivots_high, pivots_low = find_pivot_points(df, window=5)
     
-    # أحدث نقاط الدعم والمقاومة
     recent_pivot_high = pivots_high[-1]["price"] if pivots_high else df["high"].tail(20).max()
     recent_pivot_low = pivots_low[-1]["price"] if pivots_low else df["low"].tail(20).min()
     
     range_mid = (recent_pivot_high + recent_pivot_low) / 2
     range_width = recent_pivot_high - recent_pivot_low
     
-    # 4.1 عدم الشراء عند مقاومة قوية
     if last["close"] >= recent_pivot_high * 0.98:
         if last["close"] > last["open"]:
             reasons.append("⚠️ شراء عند مقاومة قوية - غير موصى به")
@@ -381,7 +378,6 @@ def support_resistance_analysis(df, last):
             reasons.append("⚠️ السعر عند مقاومة قوية")
             score -= 1
     
-    # 4.2 عدم البيع عند دعم قوي
     if last["close"] <= recent_pivot_low * 1.02:
         if last["close"] < last["open"]:
             reasons.append("⚠️ بيع عند دعم قوي - غير موصى به")
@@ -390,12 +386,10 @@ def support_resistance_analysis(df, last):
             reasons.append("⚠️ السعر عند دعم قوي")
             score -= 1
     
-    # 4.3 عدم الدخول في منتصف النطاق
     if abs(last["close"] - range_mid) < range_width * 0.1:
         reasons.append("⚠️ السعر في منتصف النطاق - غير موصى به")
         score -= 1
     
-    # 4.4 السعر قريب من الدعم أو المقاومة
     if last["close"] <= recent_pivot_low * 1.03:
         score += 2
         reasons.append(f"✅ السعر قرب الدعم: {recent_pivot_low:.5f}")
@@ -419,7 +413,6 @@ def indicator_confirmation(df, last, direction):
     score = 0
     max_score = 5
     
-    # 5.1 RSI (محسّن - مع التحقق من الاتجاه)
     rsi_score = 0
     rsi_rising = last["rsi"] > df.iloc[-2]["rsi"]
     
@@ -438,7 +431,7 @@ def indicator_confirmation(df, last, direction):
             reasons.append(f"⚠️ RSI منخفض جداً: {last['rsi']:.1f} (احتمال ارتداد)")
         else:
             reasons.append(f"⚠️ RSI غير داعم: {last['rsi']:.1f}")
-    else:  # BEARISH
+    else:
         if 30 <= last["rsi"] <= 45 and not rsi_rising:
             rsi_score = 2.5
             reasons.append(f"✅ RSI هابط وداعم للبيع: {last['rsi']:.1f}")
@@ -454,7 +447,6 @@ def indicator_confirmation(df, last, direction):
         else:
             reasons.append(f"⚠️ RSI غير داعم: {last['rsi']:.1f}")
     
-    # 5.2 MACD (محسّن - مع التحقق من التسارع)
     macd_score = 0
     macd_rising = last["macd"] > df.iloc[-2]["macd"]
     
@@ -473,7 +465,6 @@ def indicator_confirmation(df, last, direction):
     else:
         reasons.append(f"⚠️ MACD غير متوافق مع الاتجاه")
     
-    # 5.3 Bollinger Bands
     bb_score = 0
     if direction == "BULLISH" and last["close"] < last["bb_mid"]:
         bb_score = 1
@@ -484,7 +475,6 @@ def indicator_confirmation(df, last, direction):
     else:
         reasons.append(f"⚠️ البولينجر غير داعم")
     
-    # 5.4 حجم الشمعة
     candle_score = 0
     avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
     body = abs(last["close"] - last["open"])
@@ -509,20 +499,18 @@ def indicator_confirmation(df, last, direction):
 def calculate_strength(direction, trend_score, pa_score, sr_score, ind_score):
     """المرحلة 6: حساب قوة الإشارة بالأوزان المحددة (مجموع 100%)"""
     
-    # الأوزان المعدلة (مجموع 100%)
     weights = {
-        'trend': 0.30,           # 30%
-        'price_action': 0.25,    # 25%
-        'support_resistance': 0.20,  # 20%
-        'indicators': 0.25       # 25% (زيادة من 20%)
+        'trend': 0.30,
+        'price_action': 0.25,
+        'support_resistance': 0.20,
+        'indicators': 0.25
     }
     
-    # حساب الدرجة الموزونة
     weighted_score = (
-        (trend_score / 5) * weights['trend'] +      # تغيير المقام إلى 5
+        (trend_score / 5) * weights['trend'] +
         (pa_score / 5) * weights['price_action'] +
         (sr_score / 4) * weights['support_resistance'] +
-        (ind_score / 5) * weights['indicators']    # تغيير المقام إلى 5
+        (ind_score / 5) * weights['indicators']
     ) * 100
     
     return int(weighted_score)
@@ -537,9 +525,6 @@ def analyze_market(pair):
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # =============================================
-        # التحليل متعدد الفريمات
-        # =============================================
         print("\n📊 التحليل متعدد الفريمات...")
         df, df_5m, direction_5m = multi_timeframe_analysis(pair)
         
@@ -551,7 +536,6 @@ def analyze_market(pair):
             print(f"❌ بيانات غير كافية لتحليل {pair}")
             return None
         
-        # إذا كان اتجاه 5 دقائق محايد، لا نكمل
         if direction_5m == "NEUTRAL":
             print("⚠️ اتجاه 5 دقائق محايد - انتظار")
             last = df.iloc[-1]
@@ -574,10 +558,8 @@ def analyze_market(pair):
         
         print(f"✅ اتجاه 5 دقائق: {direction_5m}")
         
-        # استخدام بيانات 1 دقيقة للدخول
         last = df.iloc[-1]
         
-        # حساب المؤشرات على 1 دقيقة
         print("🔄 حساب المؤشرات الفنية على 1 دقيقة...")
         try:
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
@@ -616,8 +598,6 @@ def analyze_market(pair):
             return None
         
         last = df.iloc[-1]
-        
-        # حساب ATR كنسبة من السعر
         atr_percent = last["atr"] / last["close"] if last["close"] > 0 else 0
         
         print(f"\n📊 آخر سعر: {last['close']:.5f}")
@@ -628,9 +608,7 @@ def analyze_market(pair):
         all_reasons = []
         failed_reasons = []
         
-        # =============================================
         # المرحلة 1: فلترة السوق
-        # =============================================
         print("\n🔍 المرحلة 1: فلترة السوق")
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_percent)
         
@@ -662,9 +640,7 @@ def analyze_market(pair):
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
         
-        # =============================================
-        # المرحلة 2: تحديد الاتجاه (وزن 30%)
-        # =============================================
+        # المرحلة 2: تحديد الاتجاه
         print("\n🔍 المرحلة 2: تحديد الاتجاه (وزن 30%)")
         direction, trend_score, trend_max, trend_reasons = trend_analysis(df, last, last["atr"])
         
@@ -674,7 +650,6 @@ def analyze_market(pair):
         print(f"📊 نقاط الاتجاه: {trend_score}/{trend_max}")
         all_reasons.extend(trend_reasons)
         
-        # التحقق من توافق الاتجاه مع فريم 5 دقائق
         if direction != direction_5m and direction != "NEUTRAL":
             print(f"⚠️ اختلاف الاتجاه: 1m={direction}, 5m={direction_5m}")
             return {
@@ -707,4 +682,40 @@ def analyze_market(pair):
                 "macd": round(last["macd"], 5),
                 "macd_signal": round(last["macd_signal"], 5),
                 "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd
+                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
+                "reason": "الاتجاه غير واضح (نقاط الاتجاه منخفضة)",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
+        
+        print(f"✅ الاتجاه: {direction}")
+        
+        # المرحلة 3: Price Action
+        print("\n🔍 المرحلة 3: تحليل Price Action (وزن 25%)")
+        pattern, pa_score, pa_max, pa_reasons = price_action_analysis(df, last)
+        
+        for reason in pa_reasons:
+            print(f"  {reason}")
+        
+        print(f"📊 نقاط Price Action: {pa_score}/{pa_max}")
+        all_reasons.extend(pa_reasons)
+        
+        # المرحلة 4: الدعم والمقاومة
+        print("\n🔍 المرحلة 4: تحليل الدعم والمقاومة (وزن 20%)")
+        sr_score, sr_max, sr_reasons = support_resistance_analysis(df, last)
+        
+        for reason in sr_reasons:
+            print(f"  {reason}")
+        
+        print(f"📊 نقاط الدعم والمقاومة: {sr_score}/{sr_max}")
+        all_reasons.extend(sr_reasons)
+        
+        # المرحلة 5: تأكيد المؤشرات
+        print("\n🔍 المرحلة 5: تأكيد المؤشرات (وزن 25%)")
+        ind_score, ind_max, ind_reasons = indicator_confirmation(df, last, direction)
+        
+        for reason in ind_reasons:
+            print(f"  {reason}")
+        
+        print(f"📊 نقاط المؤشرات: {ind_score:.1f}/{ind_max}")
+        all_reasons.extend(ind_reasons)
