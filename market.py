@@ -244,11 +244,17 @@ def analyze_market(pair):
         if last["atr"] > 0:
             reasons.append(f"📊 ATR = {last['atr']:.5f} (التقلب)")
         
-        # 7. تحديد الإشارة
-        if score_buy > score_sell:
-            signal = "CALL"
-        else:
-            signal = "PUT"
+         # 7. تحديد الإشارة
+if score_buy > score_sell:
+    signal = "CALL"
+elif score_sell > score_buy:
+    signal = "PUT"
+else:
+    print("⚠️ تعادل بين مؤشرات الشراء والبيع")
+    return {
+        "signal": "WAIT",
+        "reason": "تعادل المؤشرات"
+    }
         
         print(f"📊 نقاط الشراء: {score_buy}, نقاط البيع: {score_sell}")
         print(f"📊 الإشارة الأولية: {signal}")
