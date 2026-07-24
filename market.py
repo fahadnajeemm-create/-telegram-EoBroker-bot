@@ -61,10 +61,22 @@ def get_candles(pair, interval="1min", outputsize=300):
                 response.raise_for_status()
                 data = response.json()
                 
-                if "values" in data and data["values"]:
+                # ✅ التصحيح: التحقق من وجود values وأنها ليست فارغة
+                if "values" in data and data["values"] and len(data["values"]) > 0:
                     print(f"✅ نجح جلب البيانات بالرمز: {symbol}")
-                    df = pd.DataFrame(data["values"])
-                    break
+                    # ✅ التصحيح: تحويل آمن للبيانات
+                    try:
+                        df = pd.DataFrame(data["values"])
+                        # التأكد من وجود الأعمدة المطلوبة
+                        required_cols = ["open", "high", "low", "close"]
+                        if all(col in df.columns for col in required_cols):
+                            break
+                        else:
+                            print(f"⚠️ البيانات ناقصة للأعمدة المطلوبة")
+                            df = None
+                    except Exception as e:
+                        print(f"⚠️ فشل تحويل البيانات إلى DataFrame: {e}")
+                        df = None
                 elif "status" in data and data["status"] == "error":
                     print(f"⚠️ خطأ في API للرمز {symbol}: {data.get('message', 'خطأ غير معروف')}")
                 else:
@@ -78,10 +90,11 @@ def get_candles(pair, interval="1min", outputsize=300):
                 print(f"⚠️ فشل المحاولة للرمز {symbol}: {e}")
                 continue
         
-        if df is None:
+        if df is None or len(df) == 0:
             print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
             return None
         
+        # تحويل الأعمدة إلى numeric
         for col in ["open", "high", "low", "close", "volume"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -92,6 +105,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 100 على الأقل)")
             return None
         
+        # عكس الترتيب (الأحدث أولاً)
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair} ({interval})")
         return df
@@ -370,8 +384,16 @@ def stochastic_rsi_confirmation(df, last, direction):
         stoch_k = stoch.stoch()
         stoch_d = stoch.stoch_signal()
         
+        # ✅ التصحيح: التحقق من وجود بيانات
+        if len(stoch_k) == 0 or len(stoch_d) == 0:
+            return 0, max_score, ["⚠️ لا توجد بيانات Stochastic كافية"]
+        
         current_k = stoch_k.iloc[-1]
         current_d = stoch_d.iloc[-1]
+        
+        # ✅ التصحيح: التأكد من أن القيم ليست NaN
+        if pd.isna(current_k) or pd.isna(current_d):
+            return 0, max_score, ["⚠️ قيم Stochastic غير صالحة"]
         
         if direction == "BULLISH":
             if current_k > 20 and current_k < 80 and current_k > current_d:
@@ -415,17 +437,24 @@ def supertrend_filter(df, last, direction):
         )
         atr_values = atr_indicator.average_true_range()
         
+        # ✅ التصحيح: التأكد من وجود بيانات كافية
+        if len(atr_values) < 2:
+            return True, "⚠️ بيانات ATR غير كافية لـ SuperTrend"
+        
         multiplier = 3
         upper_band = (df["high"] + df["low"]) / 2 + multiplier * atr_values
         lower_band = (df["high"] + df["low"]) / 2 - multiplier * atr_values
         
         supertrend = pd.Series(1, index=df.index)
         for i in range(1, len(df)):
-            if df.iloc[i]["close"] > upper_band.iloc[i-1]:
-                supertrend.iloc[i] = 1
-            elif df.iloc[i]["close"] < lower_band.iloc[i-1]:
-                supertrend.iloc[i] = -1
-            else:
+            try:
+                if df.iloc[i]["close"] > upper_band.iloc[i-1]:
+                    supertrend.iloc[i] = 1
+                elif df.iloc[i]["close"] < lower_band.iloc[i-1]:
+                    supertrend.iloc[i] = -1
+                else:
+                    supertrend.iloc[i] = supertrend.iloc[i-1]
+            except:
                 supertrend.iloc[i] = supertrend.iloc[i-1]
         
         last_supertrend = supertrend.iloc[-1]
