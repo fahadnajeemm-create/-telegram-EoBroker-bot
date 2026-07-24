@@ -798,5 +798,6 @@ def analyze_market(pair):
                 "price": float(last["close"]),
                 "reason": "SuperTrend غير متوافق مع الاتجاه",
                 "timestamp": datetime.now().isoformat(),
-                "pair":
-                pair}")
+                "pair": pair
+            }
+            
