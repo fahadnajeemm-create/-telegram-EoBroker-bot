@@ -1,27 +1,25 @@
+import requests
 import pandas as pd
 import ta
-import time
-import json
 import os
-from datetime import datetime
-import requests
+import time
+from datetime import datetime, timedelta
+import json
 
-# ✅ محاولة استيراد MetaTrader5
-try:
-    import MetaTrader5 as mt5
-    print("✅ MetaTrader5 تم استيراده بنجاح")
-except ImportError:
-    print("⚠️ جاري تثبيت MetaTrader5...")
-    os.system('pip install MetaTrader5')
-    import MetaTrader5 as mt5
-
-# ✅ تعيين المفتاح (احتياطي)
+# ✅ تعيين المفتاح
 TWELVE_API = "cd927853f89c420380e0dcb9cecf2846"
 NEWS_API = os.environ.get('NEWS_API', '')
 
-# ✅ إعدادات التنبيه - تم تعيينها بالكامل ✅
+# ✅ إعدادات التنبيه
 TELEGRAM_BOT_TOKEN = "8920872994:AAFt-9_WPBGGVB_jvWwqZEqphGvpvlk0LWE"
 TELEGRAM_CHAT_ID = "1228195080"
+
+# ✅ تثبيت yfinance (احتياطي)
+try:
+    import yfinance as yf
+except ImportError:
+    os.system('pip install yfinance')
+    import yfinance as yf
 
 # =============================================
 # ✅ متغيرات التحكم
@@ -95,13 +93,13 @@ def send_telegram_alert(result):
 def send_test_message():
     try:
         message = """
-🚀 *تم تشغيل البوت مع MetaTrader 5!*
+🚀 *تم تشغيل البوت بنجاح!*
 
 ✅ البوت جاهز للعمل
 🎯 هدف اليوم: 5 صفقات
 📊 الأزواج: XAUUSD, EURUSD, GBPJPY, AUDJPY
 
-📈 *البيانات مباشرة من MetaTrader 5*
+📈 *البيانات من Twelve Data API*
 📍 سيتم إرسال الإشارات فور ظهورها
 
 ⚠️ هذا ليس نصيحة استثمارية
@@ -131,139 +129,65 @@ def save_signal_to_file(result):
         return False
 
 # =============================================
-# ✅ دوال جلب البيانات من MetaTrader 5
+# ✅ دوال جلب البيانات - محسنة للذهب
 # =============================================
 
-def init_mt5():
-    """تهيئة الاتصال بـ MetaTrader 5"""
+def get_candles(pair, interval="1min", outputsize=200):
+    """جلب بيانات من Twelve Data API مع محاولات متعددة"""
     try:
-        if not mt5.initialize():
-            print("❌ فشل تهيئة MetaTrader 5")
-            return False
-        print("✅ تم تهيئة MetaTrader 5 بنجاح")
-        return True
-    except Exception as e:
-        print(f"❌ خطأ في تهيئة MT5: {e}")
-        return False
-
-def get_symbol_info(symbol):
-    """الحصول على معلومات الرمز"""
-    try:
-        symbol_info = mt5.symbol_info(symbol)
-        if symbol_info is None:
-            print(f"❌ الرمز {symbol} غير موجود")
-            return None
-        return symbol_info
-    except Exception as e:
-        print(f"❌ خطأ: {e}")
-        return None
-
-def get_candles_mt5(symbol, timeframe=mt5.TIMEFRAME_M1, count=150):
-    """جلب بيانات الشموع من MetaTrader 5"""
-    try:
-        # ✅ التحقق من وجود الرمز
-        symbol_info = get_symbol_info(symbol)
-        if symbol_info is None:
-            return None
+        print(f"🔄 جلب {pair} من Twelve Data API...")
         
-        # ✅ جلب البيانات
-        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+        # ✅ رموز خاصة لكل زوج
+        symbols_to_try = []
         
-        if rates is None or len(rates) == 0:
-            print(f"❌ لا توجد بيانات للرمز {symbol}")
-            return None
+        # الرمز الأصلي
+        symbols_to_try.append(pair)
+        symbols_to_try.append(pair.replace("/", ""))
+        symbols_to_try.append(pair.replace("/", "").upper())
         
-        # ✅ تحويل إلى DataFrame
-        df = pd.DataFrame(rates)
+        # ✅ للذهب - رموز إضافية
+        if "XAU" in pair.upper() or "GOLD" in pair.upper():
+            symbols_to_try.extend([
+                "XAUUSD",
+                "XAU/USD", 
+                "GOLD",
+                "XAU",
+                "XAUUSD=X"
+            ])
         
-        # ✅ إعادة تسمية الأعمدة
-        df = df.rename(columns={
-            'time': 'datetime',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'tick_volume': 'volume'
-        })
+        # ✅ للفضة
+        if "XAG" in pair.upper() or "SILVER" in pair.upper():
+            symbols_to_try.extend([
+                "XAGUSD",
+                "XAG/USD",
+                "SILVER"
+            ])
         
-        # ✅ تحويل الوقت
-        df['datetime'] = pd.to_datetime(df['datetime'], unit='s')
+        # ✅ للعملات الرقمية
+        if "BTC" in pair.upper():
+            symbols_to_try.extend(["BTCUSD", "BTC/USD", "BTC-USD"])
+        if "ETH" in pair.upper():
+            symbols_to_try.extend(["ETHUSD", "ETH/USD", "ETH-USD"])
         
-        # ✅ ترتيب البيانات (الأحدث أولاً)
-        df = df.iloc[::-1].reset_index(drop=True)
+        # إزالة التكرارات
+        symbols_to_try = list(dict.fromkeys(symbols_to_try))
         
-        # ✅ التحقق من وجود بيانات كافية
-        if len(df) < 30:
-            print(f"⚠️ بيانات غير كافية: {len(df)} شمعة فقط")
-            return None
-        
-        latest = df.iloc[-1]['close']
-        print(f"✅ MT5: {len(df)} شمعة لـ {symbol}, آخر سعر: {latest:.2f}")
-        
-        return df
-        
-    except Exception as e:
-        print(f"❌ خطأ في جلب البيانات من MT5: {e}")
-        return None
-
-def get_candles(pair, interval="1min", outputsize=150):
-    """جلب البيانات من MetaTrader 5"""
-    try:
-        # ✅ تحويل اسم الزوج ليتوافق مع MT5
-        symbol = pair.replace("/", "")
-        
-        # ✅ تحويل الفاصل الزمني
-        timeframe_map = {
-            "1min": mt5.TIMEFRAME_M1,
-            "5min": mt5.TIMEFRAME_M5,
-            "15min": mt5.TIMEFRAME_M15,
-            "30min": mt5.TIMEFRAME_M30,
-            "1h": mt5.TIMEFRAME_H1,
-            "4h": mt5.TIMEFRAME_H4,
-            "1d": mt5.TIMEFRAME_D1,
-        }
-        
-        timeframe = timeframe_map.get(interval, mt5.TIMEFRAME_M1)
-        
-        # ✅ جلب البيانات من MT5
-        df = get_candles_mt5(symbol, timeframe, outputsize)
-        
-        if df is not None and len(df) >= 30:
-            print(f"✅ تم جلب {len(df)} شمعة من MT5 لـ {symbol}")
-            return df
-        
-        # ✅ إذا فشل MT5، استخدم Twelve Data API كاحتياطي
-        print(f"🔄 MT5 فشل، جرب Twelve Data API...")
-        return get_candles_twelvedata(pair, interval, outputsize)
-        
-    except Exception as e:
-        print(f"❌ خطأ: {e}")
-        return None
-
-def get_candles_twelvedata(pair, interval="1min", outputsize=150):
-    """جلب بيانات من Twelve Data API (احتياطي)"""
-    try:
-        api_key = TWELVE_API
-        if not api_key:
-            return None
-        
-        symbols_to_try = [
-            pair,
-            pair.replace("/", ""),
-            pair.replace("/", "").upper(),
-        ]
-        
-        for symbol in symbols_to_try[:3]:
+        for symbol in symbols_to_try[:10]:
+            print(f"  محاولة الرمز: {symbol}")
+            
             try:
+                # ترميز الرمز
                 encoded_symbol = symbol.replace("/", "%2F")
-                url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
+                url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_API}"
                 
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=15)
                 data = response.json()
                 
+                # ✅ التحقق من وجود بيانات
                 if "values" in data and data["values"] and len(data["values"]) > 0:
                     df = pd.DataFrame(data["values"])
                     
+                    # تحويل الأعمدة
                     for col in ["open", "high", "low", "close", "volume"]:
                         if col in df.columns:
                             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -271,18 +195,97 @@ def get_candles_twelvedata(pair, interval="1min", outputsize=150):
                     df = df.dropna(subset=["open", "high", "low", "close"])
                     
                     if len(df) >= 30:
+                        # عكس الترتيب (الأحدث أولاً)
                         df = df.iloc[::-1].reset_index(drop=True)
-                        print(f"✅ Twelve Data: {len(df)} شمعة")
+                        latest = df.iloc[-1]['close']
+                        print(f"✅ Twelve Data: {len(df)} شمعة, آخر سعر: {latest:.2f}")
                         return df
-                
-                time.sleep(0.5)
-                
-            except:
-                continue
+                    else:
+                        print(f"⚠️ بيانات غير كافية: {len(df)} شمعة")
+                        
+                elif "status" in data and data["status"] == "error":
+                    error_msg = data.get('message', '')
+                    if "limit" in error_msg.lower():
+                        print("⚠️ تم الوصول إلى حد الطلبات اليومي")
+                        break
+                    elif "symbol not found" in error_msg.lower():
+                        continue
+                        
+            except requests.exceptions.Timeout:
+                print(f"⚠️ انتهت المهلة للرمز {symbol}")
+            except Exception as e:
+                print(f"⚠️ فشل الرمز {symbol}: {e}")
+            
+            time.sleep(0.5)
+        
+        # ✅ Backup: Yahoo Finance
+        print(f"🔄 محاولة Yahoo Finance...")
+        df = get_candles_yahoo(pair, interval)
+        if df is not None and len(df) >= 30:
+            return df
+        
+        print(f"❌ فشل جلب {pair}")
+        return None
+        
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+        return None
+
+def get_candles_yahoo(pair, interval="1min"):
+    """جلب بيانات من Yahoo Finance (احتياطي)"""
+    try:
+        # خريطة الرموز
+        symbol_map = {
+            "XAU/USD": "GC=F",
+            "GOLD": "GC=F",
+            "XAG/USD": "SI=F",
+            "EUR/USD": "EURUSD=X",
+            "GBP/USD": "GBPUSD=X",
+            "USD/JPY": "USDJPY=X",
+            "AUD/USD": "AUDUSD=X",
+            "NZD/USD": "NZDUSD=X",
+            "EUR/JPY": "EURJPY=X",
+            "GBP/JPY": "GBPJPY=X",
+            "AUD/JPY": "AUDJPY=X",
+            "NZD/JPY": "NZDJPY=X",
+        }
+        
+        symbol = symbol_map.get(pair)
+        if not symbol:
+            if "/" in pair:
+                base, quote = pair.split("/")
+                symbol = f"{base}{quote}=X"
+            else:
+                symbol = pair
+        
+        print(f"  Yahoo رمز: {symbol}")
+        
+        interval_map = {"1min": "1m", "5min": "5m", "15min": "15m", "1h": "60m"}
+        yf_interval = interval_map.get(interval, "1m")
+        
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="5d", interval=yf_interval)
+        
+        if df is not None and len(df) > 0:
+            df = df.rename(columns={
+                'Open': 'open',
+                'High': 'high',
+                'Low': 'low',
+                'Close': 'close',
+                'Volume': 'volume'
+            })
+            df = df.dropna(subset=['open', 'high', 'low', 'close'])
+            
+            if len(df) >= 30:
+                df = df.iloc[::-1].reset_index(drop=True)
+                latest = df.iloc[-1]['close']
+                print(f"✅ Yahoo: {len(df)} شمعة, آخر سعر: {latest:.2f}")
+                return df
         
         return None
         
     except Exception as e:
+        print(f"⚠️ Yahoo فشل: {e}")
         return None
 
 # =============================================
@@ -291,7 +294,7 @@ def get_candles_twelvedata(pair, interval="1min", outputsize=150):
 
 def check_data_availability(pair):
     try:
-        df = get_candles(pair, interval="5min", outputsize=20)
+        df = get_candles(pair, interval="5min", outputsize=30)
         if df is not None and len(df) > 0:
             latest = df.iloc[-1]['close']
             print(f"✅ البيانات متوفرة - آخر سعر: {latest:.2f}")
@@ -300,18 +303,30 @@ def check_data_availability(pair):
     except:
         return False
 
+def wait_for_candle_close(df):
+    try:
+        current_time = datetime.now()
+        seconds_remaining = 60 - current_time.second
+        if seconds_remaining > 30:
+            return False, f"⏳ انتظر {seconds_remaining} ثانية"
+        return True, "✅ الشمعة جاهزة"
+    except:
+        return True, "⚠️ لا يمكن التحقق"
+
 def market_filter(df, last, atr_percent):
-    """شروط مخففة جداً"""
+    """شروط مخففة جداً للحصول على صفقات"""
     reasons = []
     passed = True
     failed_reasons = []
     
+    # ✅ خفض ADX إلى 12
     if last["adx"] < 12:
         msg = f"⚠️ ADX ضعيف: {last['adx']:.1f}"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
     
+    # ✅ خفض ATR إلى 0.02%
     if atr_percent < 0.0002:
         msg = f"⚠️ التقلب منخفض: {atr_percent:.4%}"
         reasons.append(msg)
@@ -338,16 +353,6 @@ def market_filter(df, last, atr_percent):
         reasons.append("✅ اجتازت فلترة السوق")
     
     return passed, reasons, failed_reasons
-
-def wait_for_candle_close(df):
-    try:
-        current_time = datetime.now()
-        seconds_remaining = 60 - current_time.second
-        if seconds_remaining > 30:
-            return False, f"⏳ انتظر {seconds_remaining} ثانية"
-        return True, "✅ الشمعة جاهزة"
-    except:
-        return True, "⚠️ لا يمكن التحقق"
 
 def enhanced_price_action_analysis(df, last):
     reasons = []
@@ -563,7 +568,8 @@ def supertrend_filter(df, last, direction):
 
 def multi_timeframe_analysis(pair):
     try:
-        df_5m = get_candles(pair, interval="5min", outputsize=50)
+        # جلب 5 دقائق
+        df_5m = get_candles(pair, interval="5min", outputsize=100)
         if df_5m is None or len(df_5m) < 15:
             return None, None, None
         
@@ -590,7 +596,8 @@ def multi_timeframe_analysis(pair):
         
         print(f"📊 اتجاه 5 دقائق: {direction_5m}")
         
-        df_1m = get_candles(pair, interval="1min", outputsize=50)
+        # جلب 1 دقيقة
+        df_1m = get_candles(pair, interval="1min", outputsize=100)
         if df_1m is None or len(df_1m) < 15:
             return None, None, None
         
@@ -666,7 +673,9 @@ def analyze_market(pair, send_alerts=True):
         last = df.iloc[-1]
         atr_percent = last["atr"] / last["close"] if last["close"] > 0 else 0
         
-        print(f"📊 السعر من MT5: {last['close']:.2f}")
+        print(f"📊 السعر: {last['close']:.2f}")
+        print(f"📊 ADX: {last['adx']:.2f}")
+        print(f"📊 RSI: {last['rsi']:.2f}")
         
         # فلترة السوق
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_percent)
@@ -779,28 +788,10 @@ def analyze_market(pair, send_alerts=True):
         return None
 
 # =============================================
-# ✅ التشغيل الرئيسي
+# ✅ التشغيل
 # =============================================
 if __name__ == "__main__":
-    print("🚀 بدء تشغيل بوت التداول مع MetaTrader 5...")
-    print("=" * 60)
-    
-    # ✅ تهيئة MetaTrader 5
-    if not init_mt5():
-        print("❌ فشل الاتصال بـ MetaTrader 5")
-        print("📌 تأكد من:")
-        print("   - تشغيل منصة MetaTrader 5")
-        print("   - تفعيل خيار 'Enable automated trading'")
-        print("   - اختيار الحساب الصحيح")
-        exit()
-    
-    # ✅ عرض معلومات الحساب
-    account_info = mt5.account_info()
-    if account_info:
-        print(f"📊 الحساب: {account_info.login}")
-        print(f"💰 الرصيد: {account_info.balance:.2f}")
-        print(f"📈 الأرباح: {account_info.profit:.2f}")
-    
+    print("🚀 بدء تشغيل بوت التداول...")
     print("=" * 60)
     
     # ✅ إرسال رسالة اختبار
@@ -810,12 +801,11 @@ if __name__ == "__main__":
     print("📍 سيتم إرسال الإشارات إلى تلغرام فور ظهورها")
     print("=" * 60)
     
-    # ✅ الأزواج بصيغة MT5
     pairs = [
-        "XAUUSD",   # الذهب
-        "EURUSD",   # يورو دولار
-        "GBPJPY",   # باوند ين
-        "AUDJPY"    # استرالي ين
+        "XAU/USD",
+        "EUR/USD",
+        "GBP/JPY",
+        "AUD/JPY"
     ]
     
     while True:
@@ -826,8 +816,6 @@ if __name__ == "__main__":
                     time.sleep(60)
                     continue
                 
-                # ✅ تحويل الاسم للعرض
-                display_pair = f"{pair[:3]}/{pair[3:]}"
                 result = analyze_market(pair, send_alerts=True)
                 
                 if result and result['signal'] != 'WAIT':
@@ -840,8 +828,6 @@ if __name__ == "__main__":
             
         except KeyboardInterrupt:
             print("\n🛑 تم الإيقاف")
-            # ✅ إغلاق الاتصال بـ MT5
-            mt5.shutdown()
             break
         except Exception as e:
             print(f"❌ خطأ: {e}")
