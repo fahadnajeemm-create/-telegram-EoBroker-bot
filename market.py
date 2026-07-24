@@ -30,7 +30,6 @@ def get_candles(pair, interval="1min", outputsize=300):
             print("❌ خطأ: مفتاح API غير موجود")
             return None
         
-        # قائمة بالصيغ الممكنة للرمز
         symbols_to_try = [
             pair,
             pair.replace("/", ""),
@@ -38,7 +37,6 @@ def get_candles(pair, interval="1min", outputsize=300):
             pair.split("/")[0] + pair.split("/")[1],
         ]
         
-        # إزالة التكرارات مع الحفاظ على الترتيب
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
         df = None
         
@@ -72,7 +70,6 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
             return None
         
-        # تحويل الأعمدة إلى أرقام
         for col in ["open", "high", "low", "close", "volume"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -83,7 +80,6 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 100 على الأقل)")
             return None
         
-        # ترتيب الشموع من الأقدم إلى الأحدث
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair} ({interval})")
         return df
@@ -103,21 +99,18 @@ def market_filter(df, last, atr_percent):
     passed = True
     failed_reasons = []
     
-    # 1.1 التحقق من ADX (قوة الاتجاه)
     if last["adx"] < 25:
         msg = f"⚠️ ADX ضعيف: {last['adx']:.1f} (يحتاج ≥ 25)"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
     
-    # 1.2 التحقق من ATR كنسبة من السعر
     if atr_percent < 0.0008:
         msg = f"⚠️ التقلب منخفض: ATR {atr_percent:.4%} من السعر (يحتاج ≥ 0.08%)"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
     
-    # 1.3 التحقق من عدم وجود شمعة انفجارية
     avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
     body = abs(last["close"] - last["open"])
     if body > avg_body * 2:
@@ -126,7 +119,6 @@ def market_filter(df, last, atr_percent):
         failed_reasons.append(msg)
         passed = False
     
-    # 1.4 التحقق من عدم وجود تذبذب قوي
     candle_range = last["high"] - last["low"]
     avg_range = (df["high"] - df["low"]).tail(20).mean()
     if candle_range > avg_range * 1.8:
@@ -243,7 +235,6 @@ def enhanced_price_action_analysis(df, last):
         lower_shadow = min(current["open"], current["close"]) - current["low"]
         total_range = current["high"] - current["low"]
         
-        # Bullish Engulfing
         if (prev["close"] < prev["open"] and
             current["close"] > current["open"] and
             current["open"] < prev["close"] and
@@ -252,7 +243,6 @@ def enhanced_price_action_analysis(df, last):
             score = 7
             reasons.append("✅ Bullish Engulfing - نمط انعكاس صاعد قوي")
         
-        # Bearish Engulfing
         elif (prev["close"] > prev["open"] and
               current["close"] < current["open"] and
               current["open"] > prev["close"] and
@@ -261,7 +251,6 @@ def enhanced_price_action_analysis(df, last):
             score = 7
             reasons.append("✅ Bearish Engulfing - نمط انعكاس هابط قوي")
         
-        # Pin Bar
         elif total_range > 0:
             if lower_shadow > body * 2 and upper_shadow < body * 0.5:
                 pattern = "BULLISH_PIN_BAR"
@@ -273,14 +262,12 @@ def enhanced_price_action_analysis(df, last):
                 score = 6
                 reasons.append(f"✅ Bearish Pin Bar - ظل علوي {upper_shadow:.5f} > {body * 2:.5f}")
         
-        # Inside Bar
         if (prev["high"] > current["high"] and prev["low"] < current["low"]):
             if not pattern:
                 pattern = "INSIDE_BAR"
                 score = max(score, 4)
                 reasons.append("✅ Inside Bar - شمعة داخل نطاق سابق")
         
-        # Breakout
         resistance = df.iloc[:-1]["high"].tail(5).max()
         support = df.iloc[:-1]["low"].tail(5).min()
         
@@ -376,7 +363,7 @@ def bollinger_width_filter(df, last):
         return True, f"⚠️ خطأ في فحص البولينجر: {e}"
 
 # =============================================
-# التحسين 7: Stochastic مع RSI - نسخة مُصحَّحة
+# التحسين 7: Stochastic مع RSI
 # =============================================
 def stochastic_rsi_confirmation(df, last, direction):
     """تأكيد الزخم باستخدام Stochastic و RSI"""
@@ -385,7 +372,6 @@ def stochastic_rsi_confirmation(df, last, direction):
     max_score = 3
     
     try:
-        # حساب Stochastic بشكل منفصل
         stoch = ta.momentum.StochasticOscillator(
             high=df["high"],
             low=df["low"],
@@ -396,7 +382,6 @@ def stochastic_rsi_confirmation(df, last, direction):
         stoch_k = stoch.stoch()
         stoch_d = stoch.stoch_signal()
         
-        # استخدام القيم الحالية
         current_k = stoch_k.iloc[-1]
         current_d = stoch_d.iloc[-1]
         
@@ -409,7 +394,7 @@ def stochastic_rsi_confirmation(df, last, direction):
                 reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع: K={current_k:.1f}")
             else:
                 reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
-        else:  # BEARISH
+        else:
             if current_k < 80 and current_k > 20 and current_k < current_d:
                 score += 1.5
                 reasons.append(f"✅ Stochastic هابط: K={current_k:.1f} < D={current_d:.1f}")
@@ -419,7 +404,6 @@ def stochastic_rsi_confirmation(df, last, direction):
             else:
                 reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
         
-        # RSI
         if direction == "BULLISH" and 55 <= last["rsi"] <= 70:
             score += 0.5
             reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
@@ -433,12 +417,11 @@ def stochastic_rsi_confirmation(df, last, direction):
         return 0, max_score, [f"⚠️ خطأ في Stochastic: {e}"]
 
 # =============================================
-# التحسين 8: SuperTrend - نسخة مُصحَّحة
+# التحسين 8: SuperTrend
 # =============================================
 def supertrend_filter(df, last, direction):
     """فلتر SuperTrend للتأكيد على الاتجاه"""
     try:
-        # حساب ATR
         atr_indicator = ta.volatility.AverageTrueRange(
             high=df["high"],
             low=df["low"],
@@ -451,7 +434,6 @@ def supertrend_filter(df, last, direction):
         upper_band = (df["high"] + df["low"]) / 2 + multiplier * atr_values
         lower_band = (df["high"] + df["low"]) / 2 - multiplier * atr_values
         
-        # حساب SuperTrend
         supertrend = pd.Series(1, index=df.index)
         for i in range(1, len(df)):
             if df.iloc[i]["close"] > upper_band.iloc[i-1]:
@@ -535,7 +517,7 @@ def multi_timeframe_analysis(pair):
         return None, None, None
 
 # =============================================
-# الدالة الرئيسية
+# الدالة الرئيسية - كاملة
 # =============================================
 def analyze_market(pair):
     """تحليل السوق باستخدام جميع الفلاتر المحسنة"""
@@ -769,4 +751,38 @@ def analyze_market(pair):
         print("\n🔍 المرحلة 5: فلتر SuperTrend")
         st_ok, st_msg = supertrend_filter(df, last, direction)
         print(f"  {st_msg}")
-        all_reasons
+        all_reasons.append(st_msg)
+        
+        if not st_ok:
+            print("❌ SuperTrend غير متوافق")
+            return {
+                "signal": "WAIT",
+                "strength": 0,
+                "duration": 0,
+                "price": float(last["close"]),
+                "reason": "SuperTrend غير متوافق مع الاتجاه",
+                "timestamp": datetime.now().isoformat(),
+                "pair": pair
+            }
+        
+        # حساب القوة النهائية
+        total_weight = 30 + 25 + 15 + 15 + 15  # الاتجاه + PA + Stochastic + RSI + SuperTrend
+        weighted_score = (
+            (trend_score / trend_max) * 30 +
+            (pa_score / pa_max) * 25 +
+            (stoch_score / stoch_max) * 15 +
+            15 +  # RSI
+            15   # SuperTrend
+        )
+        
+        strength_percent = (weighted_score / total_weight) * 100
+        
+        # تحديد الإشارة
+        if strength_percent >= 70:
+            signal = "BUY" if direction == "BULLISH" else "SELL"
+            duration = 15
+        elif strength_percent >= 55:
+            signal = "BUY" if direction == "BULLISH" else "SELL"
+            duration = 10
+        else:
+            signal = "WAIT"
