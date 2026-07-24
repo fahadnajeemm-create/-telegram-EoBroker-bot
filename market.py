@@ -6,15 +6,14 @@ import time
 from datetime import datetime, timedelta
 import json
 
-# ✅ تعيين المفتاح
+# ✅ تعيين المفتاح (احتياطي)
 TWELVE_API = "cd927853f89c420380e0dcb9cecf2846"
-NEWS_API = os.environ.get('NEWS_API', '')
 
 # ✅ إعدادات التنبيه
 TELEGRAM_BOT_TOKEN = "8920872994:AAFt-9_WPBGGVB_jvWwqZEqphGvpvlk0LWE"
 TELEGRAM_CHAT_ID = "1228195080"
 
-# ✅ تثبيت yfinance (احتياطي)
+# ✅ تثبيت yfinance
 try:
     import yfinance as yf
 except ImportError:
@@ -28,6 +27,7 @@ DAILY_TARGET = 5
 trades_today = 0
 last_trade_date = datetime.now().date()
 trades_history = []
+last_price_cache = {}  # حفظ آخر سعر لكل زوج
 
 def can_trade():
     global trades_today, last_trade_date
@@ -97,9 +97,9 @@ def send_test_message():
 
 ✅ البوت جاهز للعمل
 🎯 هدف اليوم: 5 صفقات
-📊 الأزواج: XAUUSD, EURUSD, GBPJPY, AUDJPY
+📊 الأزواج: XAUUSD, EURUSD, GBPJPY
 
-📈 *البيانات من Twelve Data API*
+📈 *البيانات من Yahoo Finance*
 📍 سيتم إرسال الإشارات فور ظهورها
 
 ⚠️ هذا ليس نصيحة استثمارية
@@ -129,112 +129,15 @@ def save_signal_to_file(result):
         return False
 
 # =============================================
-# ✅ دوال جلب البيانات - محسنة للذهب
+# ✅ دوال جلب البيانات - Yahoo Finance + Twelve Data
 # =============================================
 
 def get_candles(pair, interval="1min", outputsize=200):
-    """جلب بيانات من Twelve Data API مع محاولات متعددة"""
+    """جلب بيانات من Yahoo Finance مع تحديث مستمر"""
     try:
-        print(f"🔄 جلب {pair} من Twelve Data API...")
+        print(f"🔄 جلب {pair}...")
         
-        # ✅ رموز خاصة لكل زوج
-        symbols_to_try = []
-        
-        # الرمز الأصلي
-        symbols_to_try.append(pair)
-        symbols_to_try.append(pair.replace("/", ""))
-        symbols_to_try.append(pair.replace("/", "").upper())
-        
-        # ✅ للذهب - رموز إضافية
-        if "XAU" in pair.upper() or "GOLD" in pair.upper():
-            symbols_to_try.extend([
-                "XAUUSD",
-                "XAU/USD", 
-                "GOLD",
-                "XAU",
-                "XAUUSD=X"
-            ])
-        
-        # ✅ للفضة
-        if "XAG" in pair.upper() or "SILVER" in pair.upper():
-            symbols_to_try.extend([
-                "XAGUSD",
-                "XAG/USD",
-                "SILVER"
-            ])
-        
-        # ✅ للعملات الرقمية
-        if "BTC" in pair.upper():
-            symbols_to_try.extend(["BTCUSD", "BTC/USD", "BTC-USD"])
-        if "ETH" in pair.upper():
-            symbols_to_try.extend(["ETHUSD", "ETH/USD", "ETH-USD"])
-        
-        # إزالة التكرارات
-        symbols_to_try = list(dict.fromkeys(symbols_to_try))
-        
-        for symbol in symbols_to_try[:10]:
-            print(f"  محاولة الرمز: {symbol}")
-            
-            try:
-                # ترميز الرمز
-                encoded_symbol = symbol.replace("/", "%2F")
-                url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_API}"
-                
-                response = requests.get(url, timeout=15)
-                data = response.json()
-                
-                # ✅ التحقق من وجود بيانات
-                if "values" in data and data["values"] and len(data["values"]) > 0:
-                    df = pd.DataFrame(data["values"])
-                    
-                    # تحويل الأعمدة
-                    for col in ["open", "high", "low", "close", "volume"]:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                    
-                    df = df.dropna(subset=["open", "high", "low", "close"])
-                    
-                    if len(df) >= 30:
-                        # عكس الترتيب (الأحدث أولاً)
-                        df = df.iloc[::-1].reset_index(drop=True)
-                        latest = df.iloc[-1]['close']
-                        print(f"✅ Twelve Data: {len(df)} شمعة, آخر سعر: {latest:.2f}")
-                        return df
-                    else:
-                        print(f"⚠️ بيانات غير كافية: {len(df)} شمعة")
-                        
-                elif "status" in data and data["status"] == "error":
-                    error_msg = data.get('message', '')
-                    if "limit" in error_msg.lower():
-                        print("⚠️ تم الوصول إلى حد الطلبات اليومي")
-                        break
-                    elif "symbol not found" in error_msg.lower():
-                        continue
-                        
-            except requests.exceptions.Timeout:
-                print(f"⚠️ انتهت المهلة للرمز {symbol}")
-            except Exception as e:
-                print(f"⚠️ فشل الرمز {symbol}: {e}")
-            
-            time.sleep(0.5)
-        
-        # ✅ Backup: Yahoo Finance
-        print(f"🔄 محاولة Yahoo Finance...")
-        df = get_candles_yahoo(pair, interval)
-        if df is not None and len(df) >= 30:
-            return df
-        
-        print(f"❌ فشل جلب {pair}")
-        return None
-        
-    except Exception as e:
-        print(f"❌ خطأ: {e}")
-        return None
-
-def get_candles_yahoo(pair, interval="1min"):
-    """جلب بيانات من Yahoo Finance (احتياطي)"""
-    try:
-        # خريطة الرموز
+        # ✅ خريطة الرموز
         symbol_map = {
             "XAU/USD": "GC=F",
             "GOLD": "GC=F",
@@ -248,6 +151,8 @@ def get_candles_yahoo(pair, interval="1min"):
             "GBP/JPY": "GBPJPY=X",
             "AUD/JPY": "AUDJPY=X",
             "NZD/JPY": "NZDJPY=X",
+            "BTC/USD": "BTC-USD",
+            "ETH/USD": "ETH-USD",
         }
         
         symbol = symbol_map.get(pair)
@@ -258,34 +163,150 @@ def get_candles_yahoo(pair, interval="1min"):
             else:
                 symbol = pair
         
-        print(f"  Yahoo رمز: {symbol}")
+        print(f"📌 رمز: {symbol}")
         
-        interval_map = {"1min": "1m", "5min": "5m", "15min": "15m", "1h": "60m"}
+        # تحويل الفاصل الزمني
+        interval_map = {
+            "1min": "1m",
+            "5min": "5m",
+            "15min": "15m",
+            "30min": "30m",
+            "1h": "60m",
+        }
         yf_interval = interval_map.get(interval, "1m")
         
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="5d", interval=yf_interval)
+        # ✅ فترة الجلب
+        if "XAU" in pair.upper() or "GOLD" in pair.upper():
+            period = "5d"
+        else:
+            period = "7d"
         
-        if df is not None and len(df) > 0:
-            df = df.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
+        # ✅ محاولات متعددة
+        for attempt in range(3):
+            try:
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(period=period, interval=yf_interval)
+                
+                if df is not None and len(df) > 0:
+                    # ✅ تحقق من التاريخ
+                    last_time = df.index[-1]
+                    time_diff = (datetime.now() - last_time).total_seconds() / 60
+                    
+                    if time_diff > 30:  # إذا كان الفرق أكثر من 30 دقيقة
+                        print(f"⚠️ بيانات قديمة ({time_diff:.0f} دقيقة)")
+                        if attempt < 2:
+                            print("🔄 محاولة تحديث...")
+                            time.sleep(2)
+                            continue
+                    
+                    # إعادة تسمية الأعمدة
+                    df = df.rename(columns={
+                        'Open': 'open',
+                        'High': 'high',
+                        'Low': 'low',
+                        'Close': 'close',
+                        'Volume': 'volume'
+                    })
+                    
+                    df = df.dropna(subset=['open', 'high', 'low', 'close'])
+                    
+                    if len(df) >= 30:
+                        df = df.iloc[::-1].reset_index(drop=True)
+                        latest_price = df.iloc[-1]['close']
+                        
+                        # ✅ حفظ السعر في الكاش
+                        last_price_cache[pair] = latest_price
+                        
+                        print(f"✅ {len(df)} شمعة, آخر سعر: {latest_price:.2f}")
+                        return df
+                    else:
+                        print(f"⚠️ بيانات غير كافية: {len(df)} شمعة")
+                else:
+                    print(f"⚠️ لا توجد بيانات")
+                
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"⚠️ محاولة {attempt+1} فشلت: {e}")
+                time.sleep(2)
+        
+        # ✅ إذا فشل Yahoo، جرب Twelve Data
+        print(f"🔄 محاولة Twelve Data API...")
+        df = get_candles_twelvedata(pair, interval, outputsize)
+        if df is not None and len(df) >= 30:
+            return df
+        
+        # ✅ إذا كان لدينا سعر مخزن، استخدمه
+        if pair in last_price_cache:
+            print(f"⚠️ استخدام السعر المخزن: {last_price_cache[pair]:.2f}")
+            # إنشاء DataFrame وهمي بآخر سعر معروف
+            df = pd.DataFrame({
+                'open': [last_price_cache[pair]] * 50,
+                'high': [last_price_cache[pair]] * 50,
+                'low': [last_price_cache[pair]] * 50,
+                'close': [last_price_cache[pair]] * 50,
+                'volume': [0] * 50
             })
-            df = df.dropna(subset=['open', 'high', 'low', 'close'])
-            
-            if len(df) >= 30:
-                df = df.iloc[::-1].reset_index(drop=True)
-                latest = df.iloc[-1]['close']
-                print(f"✅ Yahoo: {len(df)} شمعة, آخر سعر: {latest:.2f}")
-                return df
+            return df
+        
+        print(f"❌ فشل جلب {pair}")
+        return None
+        
+    except Exception as e:
+        print(f"❌ خطأ: {e}")
+        return None
+
+def get_candles_twelvedata(pair, interval="1min", outputsize=200):
+    """جلب بيانات من Twelve Data API (احتياطي)"""
+    try:
+        api_key = TWELVE_API
+        if not api_key:
+            return None
+        
+        symbols_to_try = [
+            pair,
+            pair.replace("/", ""),
+            pair.replace("/", "").upper(),
+        ]
+        
+        if "XAU" in pair.upper():
+            symbols_to_try.extend(["XAUUSD", "XAU/USD"])
+        if "XAG" in pair.upper():
+            symbols_to_try.extend(["XAGUSD", "XAG/USD"])
+        
+        symbols_to_try = list(dict.fromkeys(symbols_to_try))
+        
+        for symbol in symbols_to_try[:5]:
+            try:
+                encoded_symbol = symbol.replace("/", "%2F")
+                url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
+                
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                
+                if "values" in data and data["values"] and len(data["values"]) > 0:
+                    df = pd.DataFrame(data["values"])
+                    
+                    for col in ["open", "high", "low", "close", "volume"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    df = df.dropna(subset=["open", "high", "low", "close"])
+                    
+                    if len(df) >= 30:
+                        df = df.iloc[::-1].reset_index(drop=True)
+                        latest = df.iloc[-1]['close']
+                        print(f"✅ Twelve Data: {len(df)} شمعة, آخر سعر: {latest:.2f}")
+                        return df
+                
+                time.sleep(0.5)
+                
+            except:
+                continue
         
         return None
         
     except Exception as e:
-        print(f"⚠️ Yahoo فشل: {e}")
         return None
 
 # =============================================
@@ -314,19 +335,17 @@ def wait_for_candle_close(df):
         return True, "⚠️ لا يمكن التحقق"
 
 def market_filter(df, last, atr_percent):
-    """شروط مخففة جداً للحصول على صفقات"""
+    """شروط مخففة جداً"""
     reasons = []
     passed = True
     failed_reasons = []
     
-    # ✅ خفض ADX إلى 12
     if last["adx"] < 12:
         msg = f"⚠️ ADX ضعيف: {last['adx']:.1f}"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
     
-    # ✅ خفض ATR إلى 0.02%
     if atr_percent < 0.0002:
         msg = f"⚠️ التقلب منخفض: {atr_percent:.4%}"
         reasons.append(msg)
@@ -635,6 +654,7 @@ def analyze_market(pair, send_alerts=True):
         df, df_5m, direction_5m = multi_timeframe_analysis(pair)
         
         if df is None or len(df) < 15:
+            print(f"❌ بيانات غير كافية")
             return None
         
         # حساب المؤشرات
@@ -726,12 +746,12 @@ def analyze_market(pair, send_alerts=True):
         
         strength_percent = (weighted_score / total_weight) * 100
         
-        # تحديد الإشارة
-        if strength_percent >= 35:
+        # تحديد الإشارة - شروط مخففة جداً
+        if strength_percent >= 30:
             signal = "BUY" if direction == "BULLISH" else "SELL"
             duration = 10
             strength_text = "قوية"
-        elif strength_percent >= 20:
+        elif strength_percent >= 18:
             signal = "BUY" if direction == "BULLISH" else "SELL"
             duration = 5
             strength_text = "متوسطة"
@@ -804,8 +824,7 @@ if __name__ == "__main__":
     pairs = [
         "XAU/USD",
         "EUR/USD",
-        "GBP/JPY",
-        "AUD/JPY"
+        "GBP/JPY"
     ]
     
     while True:
@@ -823,12 +842,12 @@ if __name__ == "__main__":
                 
                 time.sleep(5)
             
-            print(f"\n⏳ انتظار 15 ثانية...")
-            time.sleep(15)
+            print(f"\n⏳ انتظار 10 ثواني...")
+            time.sleep(10)
             
         except KeyboardInterrupt:
             print("\n🛑 تم الإيقاف")
             break
         except Exception as e:
             print(f"❌ خطأ: {e}")
-            time.sleep(15)
+            time.sleep(10)
