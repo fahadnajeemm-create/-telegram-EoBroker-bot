@@ -30,6 +30,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print("❌ خطأ: مفتاح API غير موجود")
             return None
         
+        # ✅ تحسين: قائمة موسعة من الرموز المحتملة
         symbols_to_try = [
             pair,
             pair.replace("/", ""),
@@ -37,48 +38,116 @@ def get_candles(pair, interval="1min", outputsize=300):
             pair.split("/")[0] + pair.split("/")[1],
         ]
         
+        # ✅ تحسين خاص بالذهب
         if "XAU" in pair.upper() or "GOLD" in pair.upper():
-            symbols_to_try.extend(["XAUUSD", "XAU/USD", "GOLD", "GC=F", "XAU", "USDXAU"])
+            symbols_to_try.extend([
+                "XAUUSD", 
+                "XAU/USD", 
+                "GOLD", 
+                "GC=F", 
+                "XAU",
+                "USDXAU",
+                "FX_IDC:XAUUSD",  # TradingView symbol
+                "OANDA:XAUUSD",   # OANDA symbol
+                "BITSTAMP:XAUUSD",
+                "XAUUSD:X"
+            ])
         
+        # ✅ تحسين خاص بالفضة
         if "XAG" in pair.upper() or "SILVER" in pair.upper():
-            symbols_to_try.extend(["XAGUSD", "XAG/USD", "SILVER", "SI=F"])
+            symbols_to_try.extend([
+                "XAGUSD", 
+                "XAG/USD", 
+                "SILVER", 
+                "SI=F",
+                "FX_IDC:XAGUSD",
+                "OANDA:XAGUSD"
+            ])
         
+        # ✅ تحسين خاص بالعملات الرقمية
         if "BTC" in pair.upper():
-            symbols_to_try.extend(["BTCUSD", "BTC/USD", "BITSTAMP:BTCUSD", "COINBASE:BTCUSD"])
+            symbols_to_try.extend([
+                "BTCUSD", 
+                "BTC/USD", 
+                "BITSTAMP:BTCUSD", 
+                "COINBASE:BTCUSD",
+                "BINANCE:BTCUSDT"
+            ])
         
         if "ETH" in pair.upper():
-            symbols_to_try.extend(["ETHUSD", "ETH/USD", "COINBASE:ETHUSD"])
+            symbols_to_try.extend([
+                "ETHUSD", 
+                "ETH/USD", 
+                "COINBASE:ETHUSD",
+                "BINANCE:ETHUSDT"
+            ])
         
+        # إزالة التكرارات
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
         df = None
         
+        print(f"🔄 سيتم محاولة الرموز: {symbols_to_try[:5]}...")
+        
         for symbol in symbols_to_try:
             print(f"🔄 محاولة جلب البيانات بالرمز: {symbol} ({interval})")
-            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
+            
+            # ✅ تحسين: استخدام endpoint مختلف للذهب
+            if "XAU" in symbol.upper() or "GOLD" in symbol.upper():
+                url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}&dp=5"
+            else:
+                url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
             
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=15)
                 response.raise_for_status()
                 data = response.json()
                 
-                # ✅ التصحيح: التحقق من وجود values وأنها ليست فارغة
+                # ✅ تحسين: التحقق من وجود بيانات
                 if "values" in data and data["values"] and len(data["values"]) > 0:
-                    print(f"✅ نجح جلب البيانات بالرمز: {symbol}")
-                    # ✅ التصحيح: تحويل آمن للبيانات
+                    print(f"✅ نجح جلب البيانات بالرمز: {symbol} (عدد الشموع: {len(data['values'])})")
+                    
                     try:
                         df = pd.DataFrame(data["values"])
-                        # التأكد من وجود الأعمدة المطلوبة
+                        
+                        # ✅ تحسين: التحقق من الأعمدة المطلوبة
                         required_cols = ["open", "high", "low", "close"]
-                        if all(col in df.columns for col in required_cols):
-                            break
+                        missing_cols = [col for col in required_cols if col not in df.columns]
+                        
+                        if missing_cols:
+                            print(f"⚠️ الأعمدة المفقودة: {missing_cols}")
+                            # محاولة إعادة تسمية الأعمدة إذا كانت مختلفة
+                            if "price" in df.columns and "close" not in df.columns:
+                                df["close"] = df["price"]
+                            continue
+                        
+                        # تحويل الأعمدة إلى numeric
+                        for col in ["open", "high", "low", "close", "volume"]:
+                            if col in df.columns:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
+                        
+                        df = df.dropna(subset=["open", "high", "low", "close"])
+                        
+                        if len(df) >= 100:
+                            # عكس الترتيب (الأحدث أولاً)
+                            df = df.iloc[::-1].reset_index(drop=True)
+                            print(f"✅ تم جلب {len(df)} شمعة صالحة لـ {pair}")
+                            return df
                         else:
-                            print(f"⚠️ البيانات ناقصة للأعمدة المطلوبة")
+                            print(f"⚠️ بيانات غير كافية: {len(df)} شمعة فقط (يحتاج 100)")
                             df = None
+                            
                     except Exception as e:
-                        print(f"⚠️ فشل تحويل البيانات إلى DataFrame: {e}")
+                        print(f"⚠️ فشل تحويل البيانات للرمز {symbol}: {e}")
                         df = None
+                        
                 elif "status" in data and data["status"] == "error":
-                    print(f"⚠️ خطأ في API للرمز {symbol}: {data.get('message', 'خطأ غير معروف')}")
+                    error_msg = data.get('message', 'خطأ غير معروف')
+                    print(f"⚠️ خطأ في API للرمز {symbol}: {error_msg}")
+                    
+                    # ✅ تحسين: إذا كان الخطأ بسبب الرمز، جرب الرمز التالي
+                    if "symbol not found" in error_msg.lower():
+                        continue
+                        
                 else:
                     print(f"⚠️ لا توجد بيانات للرمز {symbol}")
                     
@@ -90,31 +159,146 @@ def get_candles(pair, interval="1min", outputsize=300):
                 print(f"⚠️ فشل المحاولة للرمز {symbol}: {e}")
                 continue
         
-        if df is None or len(df) == 0:
-            print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
-            return None
+        # ✅ تحسين: إذا فشل كل شيء، جرب مصدر بيانات بديل
+        print("🔄 محاولة استخدام مصدر بيانات بديل...")
+        df = get_candles_alternative(pair, interval, outputsize)
         
-        # تحويل الأعمدة إلى numeric
-        for col in ["open", "high", "low", "close", "volume"]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+        if df is not None and len(df) >= 100:
+            print(f"✅ نجح جلب البيانات من المصدر البديل")
+            return df
         
-        df = df.dropna()
-        
-        if len(df) < 100:
-            print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 100 على الأقل)")
-            return None
-        
-        # عكس الترتيب (الأحدث أولاً)
-        df = df.iloc[::-1].reset_index(drop=True)
-        print(f"✅ تم جلب {len(df)} شمعة لـ {pair} ({interval})")
-        return df
+        print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
+        return None
         
     except Exception as e:
         print(f"❌ خطأ في get_candles: {e}")
         import traceback
         traceback.print_exc()
         return None
+
+def get_candles_alternative(pair, interval="1min", outputsize=300):
+    """مصدر بيانات بديل باستخدام Alpha Vantage أو Yahoo Finance"""
+    try:
+        # ✅ محاولة استخدام Yahoo Finance عبر yfinance
+        try:
+            import yfinance as yf
+            
+            # تحويل الرمز ليتوافق مع Yahoo Finance
+            symbol_map = {
+                "XAU/USD": "GC=F",
+                "GOLD": "GC=F",
+                "XAG/USD": "SI=F",
+                "SILVER": "SI=F",
+                "EUR/USD": "EURUSD=X",
+                "GBP/USD": "GBPUSD=X",
+                "USD/JPY": "USDJPY=X",
+                "BTC/USD": "BTC-USD",
+                "ETH/USD": "ETH-USD"
+            }
+            
+            symbol = symbol_map.get(pair, pair)
+            print(f"🔄 محاولة جلب من Yahoo Finance: {symbol}")
+            
+            # تحويل الفاصل الزمني
+            interval_map = {
+                "1min": "1m",
+                "5min": "5m",
+                "15min": "15m",
+                "30min": "30m",
+                "1h": "60m",
+                "4h": "4h",
+                "1d": "1d"
+            }
+            yf_interval = interval_map.get(interval, "1m")
+            
+            # جلب البيانات
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period="7d", interval=yf_interval)
+            
+            if df is not None and len(df) > 0:
+                # إعادة تسمية الأعمدة لتتوافق مع التنسيق المطلوب
+                df = df.rename(columns={
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume'
+                })
+                
+                # التحقق من وجود بيانات كافية
+                if len(df) >= 100:
+                    # ترتيب البيانات (الأحدث أولاً)
+                    df = df.iloc[::-1].reset_index(drop=True)
+                    print(f"✅ تم جلب {len(df)} شمعة من Yahoo Finance")
+                    return df
+                else:
+                    print(f"⚠️ بيانات Yahoo Finance غير كافية: {len(df)} شمعة")
+                    
+        except ImportError:
+            print("⚠️ yfinance غير مثبت. للتثبيت: pip install yfinance")
+        except Exception as e:
+            print(f"⚠️ خطأ في Yahoo Finance: {e}")
+        
+        # ✅ محاولة استخدام Alpha Vantage
+        try:
+            alpha_vantage_key = os.environ.get('ALPHA_VANTAGE_API', '')
+            if alpha_vantage_key:
+                print("🔄 محاولة جلب من Alpha Vantage...")
+                
+                # تحويل الرمز
+                symbol = pair.replace("/", "")
+                url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={symbol[:3]}&to_symbol={symbol[3:]}&interval=1min&apikey={alpha_vantage_key}&outputsize=full"
+                
+                response = requests.get(url, timeout=10)
+                data = response.json()
+                
+                # معالجة البيانات...
+                if "Time Series FX (1min)" in data:
+                    time_series = data["Time Series FX (1min)"]
+                    rows = []
+                    for timestamp, values in time_series.items():
+                        rows.append({
+                            'open': float(values['1. open']),
+                            'high': float(values['2. high']),
+                            'low': float(values['3. low']),
+                            'close': float(values['4. close'])
+                        })
+                    
+                    if rows:
+                        df = pd.DataFrame(rows)
+                        if len(df) >= 100:
+                            df = df.iloc[::-1].reset_index(drop=True)
+                            print(f"✅ تم جلب {len(df)} شمعة من Alpha Vantage")
+                            return df
+                        
+        except Exception as e:
+            print(f"⚠️ خطأ في Alpha Vantage: {e}")
+        
+        return None
+        
+    except Exception as e:
+        print(f"❌ خطأ في get_candles_alternative: {e}")
+        return None
+
+# ✅ تحسين: إضافة دالة للتحقق من توفر البيانات
+def check_data_availability(pair):
+    """التحقق من توفر البيانات للزوج المطلوب"""
+    try:
+        print(f"🔍 جاري التحقق من توفر البيانات لـ {pair}...")
+        
+        # محاولة جلب بيانات 5 دقائق أولاً
+        df = get_candles(pair, interval="5min", outputsize=50)
+        
+        if df is not None and len(df) > 0:
+            print(f"✅ البيانات متوفرة لـ {pair}")
+            return True
+        else:
+            print(f"❌ البيانات غير متوفرة لـ {pair}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ خطأ في check_data_availability: {e}")
+        return False
 
 def market_filter(df, last, atr_percent):
     """المرحلة 1: فلترة السوق - التحقق من ظروف السوق المناسبة"""
@@ -384,14 +568,12 @@ def stochastic_rsi_confirmation(df, last, direction):
         stoch_k = stoch.stoch()
         stoch_d = stoch.stoch_signal()
         
-        # ✅ التصحيح: التحقق من وجود بيانات
         if len(stoch_k) == 0 or len(stoch_d) == 0:
             return 0, max_score, ["⚠️ لا توجد بيانات Stochastic كافية"]
         
         current_k = stoch_k.iloc[-1]
         current_d = stoch_d.iloc[-1]
         
-        # ✅ التصحيح: التأكد من أن القيم ليست NaN
         if pd.isna(current_k) or pd.isna(current_d):
             return 0, max_score, ["⚠️ قيم Stochastic غير صالحة"]
         
@@ -437,7 +619,6 @@ def supertrend_filter(df, last, direction):
         )
         atr_values = atr_indicator.average_true_range()
         
-        # ✅ التصحيح: التأكد من وجود بيانات كافية
         if len(atr_values) < 2:
             return True, "⚠️ بيانات ATR غير كافية لـ SuperTrend"
         
@@ -536,6 +717,11 @@ def analyze_market(pair):
         print(f"\n{'=' * 50}")
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
+        
+        # ✅ تحسين: التحقق من توفر البيانات أولاً
+        if not check_data_availability(pair):
+            print(f"❌ البيانات غير متوفرة لـ {pair}")
+            return None
         
         print("\n📰 التحسين 1: فحص الأخبار الاقتصادية...")
         if not check_news_impact(pair):
@@ -843,7 +1029,8 @@ def analyze_market(pair):
 # دالة الاختبار
 # =============================================
 if __name__ == "__main__":
-    test_pairs = ["EUR/USD", "GBP/USD", "XAU/USD"]
+    # ✅ تحسين: اختبار الأزواج
+    test_pairs = ["XAU/USD", "EUR/USD", "GBP/USD"]
     
     for pair in test_pairs:
         print(f"\n{'=' * 60}")
