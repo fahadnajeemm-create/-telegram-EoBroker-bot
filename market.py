@@ -10,12 +10,160 @@ import json
 TWELVE_API = "cd927853f89c420380e0dcb9cecf2846"
 NEWS_API = os.environ.get('NEWS_API', '')
 
-# ✅ محاولة استيراد yfinance
+# ✅ إعدادات التنبيه
+TELEGRAM_BOT_TOKEN = ""  # ضع توكن البوت هنا
+TELEGRAM_CHAT_ID = ""    # ضع معرف الدردشة هنا
+
+# ✅ تثبيت yfinance إذا لم يكن موجوداً
 try:
     import yfinance as yf
 except ImportError:
-    yf = None
-    print("⚠️ yfinance غير مثبت - سيتم استخدام Twelve Data فقط")
+    print("⚠️ جاري تثبيت yfinance...")
+    os.system('pip install yfinance')
+    import yfinance as yf
+
+# =============================================
+# ✅ دالة إرسال تنبيه تلغرام
+# =============================================
+def send_telegram_alert(result):
+    """إرسال تنبيه عبر تلغرام"""
+    try:
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            print("⚠️ لم يتم تعيين توكن تلغرام")
+            return False
+        
+        # ✅ تنسيق الرسالة
+        emoji = "🟢" if result['signal'] == "BUY" else "🔴" if result['signal'] == "SELL" else "⏸"
+        
+        message = f"""
+{emoji} *إشارة تداول جديدة!*
+
+💱 *الزوج:* {result['pair']}
+💰 *السعر:* {result['price']:.5f}
+📈 *الإشارة:* {result['signal']}
+💪 *القوة:* {result['strength']}%
+⏱ *المدة:* {result['duration']} دقيقة
+
+📊 *المؤشرات:*
+• RSI: {result.get('rsi', 'N/A')}
+• ADX: {result.get('adx', 'N/A')}
+• MACD: {result.get('macd', 'N/A')}
+
+📝 *السبب:* 
+{result['reason'][:300]}
+
+⏰ *الوقت:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+⚠️ هذا ليس نصيحة استثمارية
+        """
+        
+        # ✅ إرسال الرسالة
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message,
+            'parse_mode': 'Markdown'
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            print("✅ تم إرسال التنبيه إلى تلغرام")
+            return True
+        else:
+            print(f"❌ فشل إرسال التنبيه: {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ خطأ في إرسال التنبيه: {e}")
+        return False
+
+# =============================================
+# ✅ دالة إرسال تنبيه واتساب (عبر Twilio)
+# =============================================
+def send_whatsapp_alert(result):
+    """إرسال تنبيه عبر واتساب (يتطلب حساب Twilio)"""
+    try:
+        # ✅ هنا ضبط إعدادات Twilio
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID', '')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN', '')
+        from_number = os.environ.get('TWILIO_WHATSAPP_FROM', '')
+        to_number = os.environ.get('TWILIO_WHATSAPP_TO', '')
+        
+        if not all([account_sid, auth_token, from_number, to_number]):
+            print("⚠️ لم يتم تعيين إعدادات واتساب")
+            return False
+        
+        # ✅ تثبيت twilio إذا لم يكن موجود
+        try:
+            from twilio.rest import Client
+        except ImportError:
+            print("⚠️ جاري تثبيت twilio...")
+            os.system('pip install twilio')
+            from twilio.rest import Client
+        
+        # ✅ تنسيق الرسالة
+        message = f"""
+🚨 إشارة تداول جديدة!
+
+الزوج: {result['pair']}
+الإشارة: {result['signal']}
+القوة: {result['strength']}%
+السعر: {result['price']:.5f}
+المدة: {result['duration']} دقيقة
+الوقت: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+⚠️ هذا ليس نصيحة استثمارية
+        """
+        
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(
+            from_=f'whatsapp:{from_number}',
+            body=message,
+            to=f'whatsapp:{to_number}'
+        )
+        
+        print(f"✅ تم إرسال التنبيه إلى واتساب: {message.sid}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ خطأ في إرسال واتساب: {e}")
+        return False
+
+# =============================================
+# ✅ دالة حفظ الإشارات في ملف
+# =============================================
+def save_signal_to_file(result):
+    """حفظ الإشارة في ملف JSON"""
+    try:
+        filename = "trading_signals.json"
+        
+        # قراءة الإشارات السابقة
+        signals = []
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                try:
+                    signals = json.load(f)
+                except:
+                    signals = []
+        
+        # إضافة الإشارة الجديدة
+        signals.append(result)
+        
+        # حفظ الكل
+        with open(filename, 'w') as f:
+            json.dump(signals, f, indent=2)
+        
+        print(f"✅ تم حفظ الإشارة في {filename}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ خطأ في حفظ الإشارة: {e}")
+        return False
+
+# =============================================
+# ✅ دوال جلب البيانات (نفس الكود السابق)
+# =============================================
 
 def get_price(pair):
     """الحصول على السعر الحالي"""
@@ -28,54 +176,26 @@ def get_price(pair):
         return None
 
 def get_candles(pair, interval="1min", outputsize=300):
-    """جلب بيانات الشموع - تركيز على Twelve Data للذهب"""
+    """جلب بيانات الشموع"""
     try:
-        # ✅ للذهب: استخدام Twelve Data API فقط مع رموز محددة
-        if "XAU" in pair.upper() or "GOLD" in pair.upper():
+        # للذهب والمعادن
+        metals = ["XAU", "GOLD", "XAG", "SILVER"]
+        is_metal = any(metal in pair.upper() for metal in metals)
+        
+        if is_metal:
             print(f"🔄 {pair} - جلب من Twelve Data API...")
-            
-            # ✅ رموز الذهب في Twelve Data
-            gold_symbols = [
-                "XAU/USD",
-                "XAUUSD",
-                "GOLD",
-                "XAU",
-                "FX_IDC:XAUUSD"
-            ]
+            gold_symbols = ["XAU/USD", "XAUUSD", "GOLD", "XAU"]
+            if "XAG" in pair.upper() or "SILVER" in pair.upper():
+                gold_symbols = ["XAG/USD", "XAGUSD", "SILVER", "XAG"]
             
             for symbol in gold_symbols:
-                print(f"  محاولة الرمز: {symbol}")
                 df = get_candles_twelvedata_symbol(symbol, interval, outputsize)
                 if df is not None and len(df) >= 50:
-                    print(f"✅ تم جلب {pair} بنجاح باستخدام {symbol}")
+                    print(f"✅ تم جلب {pair} بنجاح")
                     return df
-            
-            print(f"❌ فشل جلب {pair} من Twelve Data")
             return None
         
-        # ✅ للفضة
-        if "XAG" in pair.upper() or "SILVER" in pair.upper():
-            print(f"🔄 {pair} - جلب من Twelve Data API...")
-            
-            silver_symbols = [
-                "XAG/USD",
-                "XAGUSD",
-                "SILVER",
-                "XAG",
-                "FX_IDC:XAGUSD"
-            ]
-            
-            for symbol in silver_symbols:
-                print(f"  محاولة الرمز: {symbol}")
-                df = get_candles_twelvedata_symbol(symbol, interval, outputsize)
-                if df is not None and len(df) >= 50:
-                    print(f"✅ تم جلب {pair} بنجاح باستخدام {symbol}")
-                    return df
-            
-            print(f"❌ فشل جلب {pair} من Twelve Data")
-            return None
-        
-        # ✅ باقي الأزواج: Twelve Data أولاً
+        # باقي الأزواج
         print(f"🔄 محاولة جلب {pair} من Twelve Data API...")
         df = get_candles_twelvedata(pair, interval, outputsize)
         
@@ -83,7 +203,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"✅ تم جلب البيانات من Twelve Data API")
             return df
         
-        # ✅ Backup: Yahoo Finance (إذا كان مثبتاً)
+        # Backup: Yahoo Finance
         if yf is not None:
             print(f"🔄 محاولة جلب {pair} من Yahoo Finance...")
             df = get_candles_yahoo(pair, interval)
@@ -91,13 +211,11 @@ def get_candles(pair, interval="1min", outputsize=300):
                 print(f"✅ تم جلب البيانات من Yahoo Finance")
                 return df
         
-        print(f"❌ فشل جلب البيانات لـ {pair} من جميع المصادر")
+        print(f"❌ فشل جلب البيانات لـ {pair}")
         return None
         
     except Exception as e:
         print(f"❌ خطأ في get_candles: {e}")
-        import traceback
-        traceback.print_exc()
         return None
 
 def get_candles_twelvedata_symbol(symbol, interval="1min", outputsize=300):
@@ -105,25 +223,17 @@ def get_candles_twelvedata_symbol(symbol, interval="1min", outputsize=300):
     try:
         api_key = TWELVE_API
         if not api_key:
-            print("⚠️ مفتاح Twelve Data غير موجود")
             return None
         
-        # ✅ ترميز الرمز
         encoded_symbol = symbol.replace("/", "%2F").replace(":", "%3A")
         url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
-        
-        print(f"  📡 جلب من: {url[:80]}...")
         
         response = requests.get(url, timeout=15)
         data = response.json()
         
-        # ✅ التحقق من وجود بيانات
         if "values" in data and data["values"] and len(data["values"]) > 0:
-            print(f"  ✅ تم جلب {len(data['values'])} شمعة")
-            
             df = pd.DataFrame(data["values"])
             
-            # تحويل الأعمدة
             for col in ["open", "high", "low", "close", "volume"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -131,19 +241,8 @@ def get_candles_twelvedata_symbol(symbol, interval="1min", outputsize=300):
             df = df.dropna(subset=["open", "high", "low", "close"])
             
             if len(df) >= 50:
-                # عكس الترتيب (الأحدث أولاً)
                 df = df.iloc[::-1].reset_index(drop=True)
-                
-                # عرض آخر سعر للتحقق
-                latest_price = df.iloc[-1]['close']
-                print(f"  ✅ آخر سعر: {latest_price:.2f}")
                 return df
-            else:
-                print(f"  ⚠️ بيانات غير كافية: {len(df)} شمعة فقط")
-        elif "status" in data and data["status"] == "error":
-            print(f"  ⚠️ خطأ: {data.get('message', '')}")
-        else:
-            print(f"  ⚠️ لا توجد بيانات")
         
         return None
         
@@ -152,27 +251,18 @@ def get_candles_twelvedata_symbol(symbol, interval="1min", outputsize=300):
         return None
 
 def get_candles_twelvedata(pair, interval="1min", outputsize=300):
-    """جلب بيانات من Twelve Data API - للأزواج العادية"""
+    """جلب بيانات من Twelve Data API"""
     try:
         api_key = TWELVE_API
         if not api_key:
-            print("⚠️ مفتاح Twelve Data غير موجود")
             return None
         
-        # ✅ قائمة الرموز للمحاولة
         symbols_to_try = [
             pair,
             pair.replace("/", ""),
             pair.replace("/", "").upper(),
             pair.split("/")[0] + pair.split("/")[1],
         ]
-        
-        # رموز خاصة
-        pair_upper = pair.upper()
-        if "BTC" in pair_upper:
-            symbols_to_try.extend(["BTCUSD", "BTC/USD"])
-        if "ETH" in pair_upper:
-            symbols_to_try.extend(["ETHUSD", "ETH/USD"])
         
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
         
@@ -188,12 +278,11 @@ def get_candles_twelvedata(pair, interval="1min", outputsize=300):
         return None
 
 def get_candles_yahoo(pair, interval="1min"):
-    """جلب بيانات من Yahoo Finance (احتياطي)"""
+    """جلب بيانات من Yahoo Finance"""
     try:
         if yf is None:
             return None
         
-        # خريطة الرموز
         symbol_map = {
             "EUR/USD": "EURUSD=X",
             "GBP/USD": "GBPUSD=X",
@@ -214,19 +303,9 @@ def get_candles_yahoo(pair, interval="1min"):
             else:
                 symbol = pair
         
-        print(f"📌 رمز Yahoo: {symbol}")
-        
-        # تحويل الفاصل الزمني
-        interval_map = {
-            "1min": "1m",
-            "5min": "5m",
-            "15min": "15m",
-            "1h": "60m",
-            "1d": "1d"
-        }
+        interval_map = {"1min": "1m", "5min": "5m", "15min": "15m", "1h": "60m", "1d": "1d"}
         yf_interval = interval_map.get(interval, "1m")
         
-        # محاولات متعددة
         for attempt in range(3):
             try:
                 ticker = yf.Ticker(symbol)
@@ -244,20 +323,21 @@ def get_candles_yahoo(pair, interval="1min"):
                     
                     if len(df) >= 50:
                         df = df.iloc[::-1].reset_index(drop=True)
-                        print(f"✅ Yahoo: {len(df)} شمعة")
                         return df
                 
                 time.sleep(1)
                 
-            except Exception as e:
-                print(f"⚠️ محاولة {attempt+1} فشلت: {e}")
+            except:
                 time.sleep(2)
         
         return None
         
     except Exception as e:
-        print(f"❌ خطأ في Yahoo: {e}")
         return None
+
+# =============================================
+# ✅ باقي دوال التحليل (نفس الكود السابق)
+# =============================================
 
 def check_data_availability(pair):
     """التحقق من توفر البيانات"""
@@ -277,12 +357,8 @@ def check_data_availability(pair):
         print(f"❌ خطأ: {e}")
         return False
 
-# =============================================
-# باقي الدوال (نفس الكود السابق)
-# =============================================
-
 def market_filter(df, last, atr_percent):
-    """المرحلة 1: فلترة السوق"""
+    """فلترة السوق"""
     reasons = []
     passed = True
     failed_reasons = []
@@ -302,7 +378,7 @@ def market_filter(df, last, atr_percent):
     avg_body = (df["close"] - df["open"]).abs().tail(10).mean()
     body = abs(last["close"] - last["open"])
     if body > avg_body * 2:
-        msg = f"⚠️ شمعة انفجارية: الجسم {body:.5f} > {avg_body * 2:.5f}"
+        msg = f"⚠️ شمعة انفجارية"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
@@ -310,7 +386,7 @@ def market_filter(df, last, atr_percent):
     candle_range = last["high"] - last["low"]
     avg_range = (df["high"] - df["low"]).tail(20).mean()
     if candle_range > avg_range * 1.8:
-        msg = f"⚠️ تذبذب قوي: المدى {candle_range:.5f} > {avg_range * 1.8:.5f}"
+        msg = f"⚠️ تذبذب قوي"
         reasons.append(msg)
         failed_reasons.append(msg)
         passed = False
@@ -354,7 +430,7 @@ def check_news_impact(pair):
                             for article in data.get("articles", [])[:3]:
                                 title = article.get("title", "").lower()
                                 if any(word in title for word in ["emergency", "urgent", "breaking", "shock", "surprise"]):
-                                    print(f"⚠️ خبر عاجل لـ {keyword}: {article.get('title')}")
+                                    print(f"⚠️ خبر عاجل لـ {keyword}")
                                     return False
                 except:
                     pass
@@ -362,7 +438,6 @@ def check_news_impact(pair):
         return True
         
     except Exception as e:
-        print(f"⚠️ خطأ في فحص الأخبار: {e}")
         return True
 
 def volume_filter(df, last):
@@ -375,12 +450,12 @@ def volume_filter(df, last):
         current_volume = last["volume"]
         
         if current_volume < avg_volume * 0.7:
-            return False, f"⚠️ حجم التداول منخفض: {current_volume:.0f} < {avg_volume * 0.7:.0f}"
+            return False, f"⚠️ حجم التداول منخفض"
         
-        return True, f"✅ حجم التداول جيد: {current_volume:.0f} > {avg_volume * 0.7:.0f}"
+        return True, f"✅ حجم التداول جيد"
         
     except Exception as e:
-        return True, f"⚠️ خطأ في فحص الحجم: {e}"
+        return True, f"⚠️ خطأ في فحص الحجم"
 
 def wait_for_candle_close(df):
     """التحقق من أن الشمعة قاربت على الإغلاق"""
@@ -396,7 +471,7 @@ def wait_for_candle_close(df):
         return True, "⚠️ لا يمكن التحقق من وقت الشمعة"
 
 def enhanced_price_action_analysis(df, last):
-    """تحليل Price Action محسن"""
+    """تحليل Price Action"""
     reasons = []
     pattern = None
     score = 0
@@ -417,7 +492,7 @@ def enhanced_price_action_analysis(df, last):
             current["close"] > prev["open"]):
             pattern = "BULLISH_ENGULFING"
             score = 7
-            reasons.append("✅ Bullish Engulfing - نمط انعكاس صاعد قوي")
+            reasons.append("✅ Bullish Engulfing")
         
         elif (prev["close"] > prev["open"] and
               current["close"] < current["open"] and
@@ -425,24 +500,24 @@ def enhanced_price_action_analysis(df, last):
               current["close"] < prev["open"]):
             pattern = "BEARISH_ENGULFING"
             score = 7
-            reasons.append("✅ Bearish Engulfing - نمط انعكاس هابط قوي")
+            reasons.append("✅ Bearish Engulfing")
         
         elif total_range > 0:
             if lower_shadow > body * 2 and upper_shadow < body * 0.5:
                 pattern = "BULLISH_PIN_BAR"
                 score = 6
-                reasons.append(f"✅ Bullish Pin Bar - ظل سفلي {lower_shadow:.5f} > {body * 2:.5f}")
+                reasons.append("✅ Bullish Pin Bar")
             
             elif upper_shadow > body * 2 and lower_shadow < body * 0.5:
                 pattern = "BEARISH_PIN_BAR"
                 score = 6
-                reasons.append(f"✅ Bearish Pin Bar - ظل علوي {upper_shadow:.5f} > {body * 2:.5f}")
+                reasons.append("✅ Bearish Pin Bar")
         
         if (prev["high"] > current["high"] and prev["low"] < current["low"]):
             if not pattern:
                 pattern = "INSIDE_BAR"
                 score = max(score, 4)
-                reasons.append("✅ Inside Bar - شمعة داخل نطاق سابق")
+                reasons.append("✅ Inside Bar")
         
         resistance = df.iloc[:-1]["high"].tail(5).max()
         support = df.iloc[:-1]["low"].tail(5).min()
@@ -451,62 +526,62 @@ def enhanced_price_action_analysis(df, last):
             if not pattern or score < 5:
                 pattern = "BREAKOUT_BULLISH"
                 score = max(score, 5)
-                reasons.append(f"✅ اختراق مقاومة: {current['close']:.5f} > {resistance:.5f}")
+                reasons.append(f"✅ اختراق مقاومة")
         
         elif current["close"] < support and current["close"] < current["open"]:
             if not pattern or score < 5:
                 pattern = "BREAKOUT_BEARISH"
                 score = max(score, 5)
-                reasons.append(f"✅ اختراق دعم: {current['close']:.5f} < {support:.5f}")
+                reasons.append(f"✅ اختراق دعم")
     
     return pattern, score, max_score, reasons
 
 def enhanced_trend_analysis(df, last, atr):
-    """تحليل الاتجاه المحسن"""
+    """تحليل الاتجاه"""
     reasons = []
     score = 0
     max_score = 6
     
     if last["ema9"] > last["ema21"]:
         score += 1
-        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) > EMA21 ({last['ema21']:.5f})")
+        reasons.append(f"✅ EMA9 > EMA21")
     else:
-        reasons.append(f"✅ EMA9 ({last['ema9']:.5f}) < EMA21 ({last['ema21']:.5f})")
+        reasons.append(f"✅ EMA9 < EMA21")
     
     ema21_slope = df["ema21"].diff().tail(5).mean()
     if ema21_slope > 0:
         score += 1
-        reasons.append(f"✅ EMA21 صاعد: {ema21_slope:.5f}")
+        reasons.append(f"✅ EMA21 صاعد")
     else:
-        reasons.append(f"✅ EMA21 هابط: {ema21_slope:.5f}")
+        reasons.append(f"✅ EMA21 هابط")
     
     if last["close"] > last["ema21"]:
         score += 1
-        reasons.append(f"✅ السعر ({last['close']:.5f}) > EMA21 ({last['ema21']:.5f})")
+        reasons.append(f"✅ السعر > EMA21")
     else:
-        reasons.append(f"✅ السعر ({last['close']:.5f}) < EMA21 ({last['ema21']:.5f})")
+        reasons.append(f"✅ السعر < EMA21")
     
     ema_diff = abs(last["ema9"] - last["ema21"])
     atr_ratio = ema_diff / atr if atr > 0 else 0
     if atr_ratio >= 0.3:
         score += 1
-        reasons.append(f"✅ فرق EMA ({ema_diff:.5f}) = {atr_ratio:.1%} من ATR")
+        reasons.append(f"✅ فرق EMA = {atr_ratio:.1%} من ATR")
     else:
-        reasons.append(f"⚠️ فرق EMA صغير: {atr_ratio:.1%} من ATR")
+        reasons.append(f"⚠️ فرق EMA صغير")
     
     if "ema100" in df.columns:
         if last["ema21"] > last["ema100"]:
             score += 1
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) > EMA100 ({last['ema100']:.5f})")
+            reasons.append(f"✅ EMA21 > EMA100")
         else:
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) < EMA100 ({last['ema100']:.5f})")
+            reasons.append(f"✅ EMA21 < EMA100")
     
     if "ema200" in df.columns:
         if last["ema21"] > last["ema200"]:
             score += 1
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) > EMA200 ({last['ema200']:.5f})")
+            reasons.append(f"✅ EMA21 > EMA200")
         else:
-            reasons.append(f"✅ EMA21 ({last['ema21']:.5f}) < EMA200 ({last['ema200']:.5f})")
+            reasons.append(f"✅ EMA21 < EMA200")
     
     if score >= 4:
         direction = "BULLISH" if last["ema9"] > last["ema21"] else "BEARISH"
@@ -525,15 +600,15 @@ def bollinger_width_filter(df, last):
         avg_width = ((df["bb_high"] - df["bb_low"]) / df["bb_mid"]).tail(20).mean()
         
         if bb_width > avg_width * 1.5:
-            return False, f"⚠️ عرض البولينجر كبير: {bb_width:.2%} > {avg_width * 1.5:.2%}"
+            return False, f"⚠️ عرض البولينجر كبير"
         
-        return True, f"✅ عرض البولينجر طبيعي: {bb_width:.2%}"
+        return True, f"✅ عرض البولينجر طبيعي"
         
     except Exception as e:
-        return True, f"⚠️ خطأ في فحص البولينجر: {e}"
+        return True, f"⚠️ خطأ في فحص البولينجر"
 
 def stochastic_rsi_confirmation(df, last, direction):
-    """تأكيد الزخم باستخدام Stochastic و RSI"""
+    """تأكيد الزخم"""
     reasons = []
     score = 0
     max_score = 3
@@ -561,28 +636,28 @@ def stochastic_rsi_confirmation(df, last, direction):
         if direction == "BULLISH":
             if current_k > 20 and current_k < 80 and current_k > current_d:
                 score += 1.5
-                reasons.append(f"✅ Stochastic صاعد: K={current_k:.1f} > D={current_d:.1f}")
+                reasons.append(f"✅ Stochastic صاعد")
             elif current_k < 20:
                 score += 1
-                reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع: K={current_k:.1f}")
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع")
             else:
-                reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
+                reasons.append(f"⚠️ Stochastic غير داعم")
         else:
             if current_k < 80 and current_k > 20 and current_k < current_d:
                 score += 1.5
-                reasons.append(f"✅ Stochastic هابط: K={current_k:.1f} < D={current_d:.1f}")
+                reasons.append(f"✅ Stochastic هابط")
             elif current_k > 80:
                 score += 1
-                reasons.append(f"⚠️ Stochastic في منطقة ذروة الشراء: K={current_k:.1f}")
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة الشراء")
             else:
-                reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
+                reasons.append(f"⚠️ Stochastic غير داعم")
         
         if direction == "BULLISH" and 55 <= last["rsi"] <= 70:
             score += 0.5
-            reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
+            reasons.append(f"✅ RSI متوافق")
         elif direction == "BEARISH" and 30 <= last["rsi"] <= 45:
             score += 0.5
-            reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
+            reasons.append(f"✅ RSI متوافق")
         
         return score, max_score, reasons
         
@@ -590,7 +665,7 @@ def stochastic_rsi_confirmation(df, last, direction):
         return 0, max_score, [f"⚠️ خطأ في Stochastic: {e}"]
 
 def supertrend_filter(df, last, direction):
-    """فلتر SuperTrend للتأكيد على الاتجاه"""
+    """فلتر SuperTrend"""
     try:
         atr_indicator = ta.volatility.AverageTrueRange(
             high=df["high"],
@@ -601,7 +676,7 @@ def supertrend_filter(df, last, direction):
         atr_values = atr_indicator.average_true_range()
         
         if len(atr_values) < 2:
-            return True, "⚠️ بيانات ATR غير كافية لـ SuperTrend"
+            return True, "⚠️ بيانات ATR غير كافية"
         
         multiplier = 3
         upper_band = (df["high"] + df["low"]) / 2 + multiplier * atr_values
@@ -626,23 +701,20 @@ def supertrend_filter(df, last, direction):
         elif direction == "BEARISH" and last_supertrend == -1:
             return True, "✅ SuperTrend هابط"
         else:
-            return False, f"⚠️ SuperTrend غير متوافق: {last_supertrend}"
+            return False, f"⚠️ SuperTrend غير متوافق"
         
     except Exception as e:
-        return True, f"⚠️ خطأ في SuperTrend: {e}"
+        return True, f"⚠️ خطأ في SuperTrend"
 
 def multi_timeframe_analysis(pair):
     """تحليل متعدد الفريمات"""
     try:
-        # ✅ جلب بيانات 5 دقائق
+        # جلب 5 دقائق
         df_5m = get_candles(pair, interval="5min", outputsize=200)
         if df_5m is None or len(df_5m) < 50:
             print("❌ فشل جلب بيانات 5 دقائق")
             return None, None, None
         
-        print(f"📊 تم جلب {len(df_5m)} شمعة لـ 5 دقائق")
-        
-        # حساب المؤشرات لـ 5 دقائق
         df_5m["ema21"] = ta.trend.EMAIndicator(close=df_5m["close"], window=21).ema_indicator()
         df_5m["ema50"] = ta.trend.EMAIndicator(close=df_5m["close"], window=50).ema_indicator()
         df_5m["ema100"] = ta.trend.EMAIndicator(close=df_5m["close"], window=100).ema_indicator()
@@ -654,12 +726,10 @@ def multi_timeframe_analysis(pair):
         df_5m = df_5m.dropna()
         
         if len(df_5m) == 0:
-            print("❌ بيانات 5 دقائق غير صالحة بعد الحسابات")
             return None, None, None
         
         last_5m = df_5m.iloc[-1]
         
-        # ✅ تخفيف شروط الاتجاه
         is_bullish = (
             last_5m["ema21"] > last_5m["ema50"] and
             last_5m["ema50"] > last_5m["ema100"] and
@@ -681,37 +751,34 @@ def multi_timeframe_analysis(pair):
         
         print(f"📊 اتجاه 5 دقائق: {direction_5m} (ADX: {last_5m['adx']:.1f})")
         
-        # ✅ جلب بيانات 1 دقيقة
+        # جلب 1 دقيقة
         df_1m = get_candles(pair, interval="1min", outputsize=200)
         if df_1m is None or len(df_1m) < 50:
             print("❌ فشل جلب بيانات 1 دقيقة")
             return None, None, None
         
-        print(f"📊 تم جلب {len(df_1m)} شمعة لـ 1 دقيقة")
-        
         return df_1m, df_5m, direction_5m
         
     except Exception as e:
         print(f"❌ خطأ في التحليل متعدد الفريمات: {e}")
-        import traceback
-        traceback.print_exc()
         return None, None, None
 
 # =============================================
-# الدالة الرئيسية
+# ✅ الدالة الرئيسية المحسنة مع التنبيهات
 # =============================================
-def analyze_market(pair):
-    """تحليل السوق باستخدام جميع الفلاتر المحسنة"""
+def analyze_market(pair, send_alerts=True):
+    """تحليل السوق وإرسال تنبيهات إذا وجدت إشارة قوية"""
     try:
         print(f"\n{'=' * 50}")
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # ✅ التحقق من توفر البيانات
+        # التحقق من توفر البيانات
         if not check_data_availability(pair):
             print(f"❌ البيانات غير متوفرة لـ {pair}")
             return None
         
+        # فحص الأخبار
         print("\n📰 فحص الأخبار الاقتصادية...")
         if not check_news_impact(pair):
             print("❌ توجد أخبار مؤثرة - انتظار")
@@ -726,6 +793,7 @@ def analyze_market(pair):
             }
         print("✅ لا توجد أخبار مؤثرة")
         
+        # التحليل متعدد الفريمات
         print("\n📊 التحليل متعدد الفريمات...")
         df, df_5m, direction_5m = multi_timeframe_analysis(pair)
         
@@ -751,6 +819,7 @@ def analyze_market(pair):
         
         print(f"✅ اتجاه 5 دقائق: {direction_5m}")
         
+        # التحقق من إغلاق الشمعة
         print("\n⏳ التحقق من إغلاق الشمعة...")
         candle_ready, candle_msg = wait_for_candle_close(df)
         if not candle_ready:
@@ -766,6 +835,7 @@ def analyze_market(pair):
             }
         print(f"✅ {candle_msg}")
         
+        # حساب المؤشرات
         print("🔄 حساب المؤشرات الفنية...")
         try:
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
@@ -815,6 +885,7 @@ def analyze_market(pair):
         all_reasons = []
         failed_reasons = []
         
+        # المرحلة 1: فلترة السوق
         print("\n🔍 المرحلة 1: فلترة السوق")
         
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_percent)
@@ -836,22 +907,12 @@ def analyze_market(pair):
         
         if not filter_passed:
             print("❌ لم تجتز فلترة السوق")
-            fail_text = "فشل فلترة السوق:\n" + "\n".join(failed)
-            
             return {
                 "signal": "WAIT",
                 "strength": 0,
                 "duration": 0,
                 "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5),
-                "ema21": round(last["ema21"], 5),
-                "rsi": round(last["rsi"], 2),
-                "macd": round(last["macd"], 5),
-                "macd_signal": round(last["macd_signal"], 5),
-                "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": fail_text,
-                "failed_checks": failed,
+                "reason": "فشل فلترة السوق",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
@@ -859,6 +920,7 @@ def analyze_market(pair):
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
         
+        # المرحلة 2: تحديد الاتجاه
         print("\n🔍 المرحلة 2: تحديد الاتجاه (وزن 30%)")
         direction, trend_score, trend_max, trend_reasons = enhanced_trend_analysis(df, last, last["atr"])
         
@@ -869,20 +931,13 @@ def analyze_market(pair):
         all_reasons.extend(trend_reasons)
         
         if direction != direction_5m and direction != "NEUTRAL":
-            print(f"⚠️ اختلاف الاتجاه: 1m={direction}, 5m={direction_5m}")
+            print(f"⚠️ اختلاف الاتجاه")
             return {
                 "signal": "WAIT",
                 "strength": 0,
                 "duration": 0,
                 "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5),
-                "ema21": round(last["ema21"], 5),
-                "rsi": round(last["rsi"], 2),
-                "macd": round(last["macd"], 5),
-                "macd_signal": round(last["macd_signal"], 5),
-                "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": f"اختلاف الاتجاه: 1m={direction}, 5m={direction_5m}",
+                "reason": f"اختلاف الاتجاه",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
@@ -894,20 +949,14 @@ def analyze_market(pair):
                 "strength": 0,
                 "duration": 0,
                 "price": float(last["close"]),
-                "ema9": round(last["ema9"], 5),
-                "ema21": round(last["ema21"], 5),
-                "rsi": round(last["rsi"], 2),
-                "macd": round(last["macd"], 5),
-                "macd_signal": round(last["macd_signal"], 5),
-                "adx": round(last["adx"], 2),
-                "atr": round(last["atr"], 5) if not pd.isna(last["atr"]) else 0,
-                "reason": "الاتجاه غير واضح (نقاط الاتجاه منخفضة)",
+                "reason": "الاتجاه غير واضح",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
         
         print(f"✅ الاتجاه: {direction}")
         
+        # المرحلة 3: Price Action
         print("\n🔍 المرحلة 3: تحليل Price Action (وزن 25%)")
         pattern, pa_score, pa_max, pa_reasons = enhanced_price_action_analysis(df, last)
         
@@ -917,6 +966,7 @@ def analyze_market(pair):
         print(f"📊 نقاط Price Action: {pa_score}/{pa_max}")
         all_reasons.extend(pa_reasons)
         
+        # المرحلة 4: Stochastic & RSI
         print("\n🔍 المرحلة 4: تأكيد Stochastic و RSI")
         stoch_score, stoch_max, stoch_reasons = stochastic_rsi_confirmation(df, last, direction)
         
@@ -926,6 +976,7 @@ def analyze_market(pair):
         print(f"📊 نقاط Stochastic: {stoch_score:.1f}/{stoch_max}")
         all_reasons.extend(stoch_reasons)
         
+        # المرحلة 5: SuperTrend
         print("\n🔍 المرحلة 5: فلتر SuperTrend")
         st_ok, st_msg = supertrend_filter(df, last, direction)
         print(f"  {st_msg}")
@@ -938,11 +989,12 @@ def analyze_market(pair):
                 "strength": 0,
                 "duration": 0,
                 "price": float(last["close"]),
-                "reason": "SuperTrend غير متوافق مع الاتجاه",
+                "reason": "SuperTrend غير متوافق",
                 "timestamp": datetime.now().isoformat(),
                 "pair": pair
             }
         
+        # حساب القوة النهائية
         print("\n📊 حساب قوة الإشارة النهائية...")
         
         total_weight = 30 + 25 + 15 + 15 + 15
@@ -958,6 +1010,7 @@ def analyze_market(pair):
         
         print(f"📊 قوة الإشارة: {strength_percent:.1f}%")
         
+        # تحديد الإشارة
         if strength_percent >= 70:
             signal = "BUY" if direction == "BULLISH" else "SELL"
             duration = 15
@@ -998,6 +1051,19 @@ def analyze_market(pair):
             "pair": pair
         }
         
+        # ✅ إذا كانت إشارة قوية، أرسل تنبيهات
+        if signal != "WAIT" and send_alerts:
+            print("\n🚨 إشارة تداول قوية! جاري إرسال التنبيهات...")
+            
+            # إرسال تلغرام
+            send_telegram_alert(result)
+            
+            # إرسال واتساب
+            send_whatsapp_alert(result)
+            
+            # حفظ في ملف
+            save_signal_to_file(result)
+        
         print(f"\n📊 النتيجة النهائية:")
         print(f"  - الزوج: {pair}")
         print(f"  - الإشارة: {signal}")
@@ -1015,32 +1081,85 @@ def analyze_market(pair):
         return None
 
 # =============================================
-# دالة الاختبار
+# ✅ دالة التشغيل المستمر مع التنبيهات
+# =============================================
+def run_continuous_analysis(pairs, interval=30, send_alerts=True):
+    """تشغيل التحليل بشكل مستمر مع تنبيهات"""
+    print("🚀 بدء التشغيل المستمر مع التنبيهات...")
+    print(f"📊 سيتم تحليل: {', '.join(pairs)}")
+    print(f"⏱ الفاصل الزمني: {interval} ثانية")
+    print(f"🔔 التنبيهات: {'مفعلة' if send_alerts else 'معطلة'}")
+    print("=" * 60)
+    
+    # قائمة لتتبع الإشارات المرسلة لتجنب التكرار
+    sent_signals = {}
+    
+    while True:
+        try:
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(f"\n🕐 الوقت: {current_time}")
+            
+            for pair in pairs:
+                result = analyze_market(pair, send_alerts=send_alerts)
+                
+                if result and result['signal'] != 'WAIT':
+                    # ✅ إشارة قوية!
+                    signal_key = f"{pair}_{result['signal']}_{result['price']:.0f}"
+                    
+                    # تجنب إرسال نفس الإشارة مرتين
+                    if signal_key not in sent_signals or \
+                       (datetime.now() - sent_signals[signal_key]).seconds > 300:
+                        
+                        sent_signals[signal_key] = datetime.now()
+                        
+                        print(f"\n🚨🚨🚨 إشارة تداول لـ {pair}!")
+                        print(f"   📈 الإشارة: {result['signal']}")
+                        print(f"   💪 القوة: {result['strength']}%")
+                        print(f"   💰 السعر: {result['price']}")
+                        print(f"   ⏱ المدة: {result['duration']} دقيقة")
+                        print("=" * 60)
+                        
+                        # ✅ التنبيهات ترسل تلقائياً داخل analyze_market
+                        
+                elif result:
+                    # لا توجد إشارة
+                    status = "⏸"
+                    if result.get('reason'):
+                        reason_short = result['reason'][:40]
+                        print(f"{status} {pair}: {reason_short}...")
+            
+            # تنظيف الإشارات القديمة (أكثر من ساعة)
+            current_time = datetime.now()
+            old_keys = [k for k, v in sent_signals.items() 
+                       if (current_time - v).seconds > 3600]
+            for key in old_keys:
+                del sent_signals[key]
+            
+            print(f"\n⏳ انتظار {interval} ثانية...")
+            time.sleep(interval)
+            
+        except KeyboardInterrupt:
+            print("\n🛑 تم إيقاف التشغيل بواسطة المستخدم")
+            break
+        except Exception as e:
+            print(f"❌ خطأ: {e}")
+            time.sleep(interval)
+
+# =============================================
+# ✅ التشغيل
 # =============================================
 if __name__ == "__main__":
-    # ✅ اختبار الأزواج المختلفة
-    test_pairs = [
+    # ✅ قائمة الأزواج للتحليل
+    pairs_to_analyze = [
         "XAU/USD",    # الذهب
         "EUR/USD",    # يورو دولار
-        "GBP/JPY",    # باوند ين
-        "NZD/JPY",    # نيوزيلندي ين
+        "GBP/JPY",    # باوند ين (تقلب عالي)
+        "AUD/JPY",    # استرالي ين
     ]
     
-    for pair in test_pairs:
-        print(f"\n{'=' * 60}")
-        print(f"🧪 اختبار تحليل الزوج: {pair}")
-        print(f"{'=' * 60}")
-        
-        result = analyze_market(pair)
-        
-        if result:
-            print(f"\n✅ نجح تحليل {pair}")
-            print(f"   الإشارة: {result['signal']}")
-            print(f"   القوة: {result['strength']}%")
-            print(f"   السعر: {result['price']}")
-            if result['signal'] != 'WAIT':
-                print(f"   ✅ صفقة محتملة! المدة: {result['duration']} دقيقة")
-            else:
-                print(f"   ⏳ انتظار - لا توجد إشارة حالياً")
-        else:
-            print(f"\n❌ فشل تحليل {pair}")
+    # ✅ تشغيل التحليل المستمر مع التنبيهات
+    run_continuous_analysis(
+        pairs=pairs_to_analyze,
+        interval=30,      # كل 30 ثانية
+        send_alerts=True  # إرسال تنبيهات
+    )
