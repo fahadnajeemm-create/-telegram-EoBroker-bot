@@ -776,4 +776,8 @@ def analyze_market(pair):
             duration = 0
             strength_text = "ضعيفة"
         
-        print(f"✅ الإشارة النهائية: {signal} (القوة: {strength
+        print(f"✅ الإشارة النهائية: {signal} (القوة: {strength_text})")
+        
+        result = {
+            "signal": signal,
+            "
