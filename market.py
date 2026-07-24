@@ -776,4 +776,61 @@ def analyze_market(pair):
             "price": float(last["close"]),
             "ema9": round(last["ema9"], 5),
             "ema21": round(last["ema21"], 5),
-            "ema100": round(last["ema100"], 5) if "ema100" in df.columns
+            "ema100": round(last["ema100"], 5) if "ema100" in df.columns else None,
+            "ema200": round(last["ema200"], 5) if "ema200" in df.columns else None,
+            "rsi": round(last["rsi"], 2),
+            "macd": round(last["macd"], 5),
+            "macd_signal": round(last["macd_signal"], 5),
+            "adx": round(last["adx"], 2),
+            "atr": round(last["atr"], 5),
+            "direction": direction,
+            "direction_5m": direction_5m,
+            "pattern": pattern,
+            "trend_score": f"{trend_score}/{trend_max}",
+            "pa_score": f"{pa_score}/{pa_max}",
+            "stoch_score": f"{stoch_score:.1f}/{stoch_max}",
+            "reason": "\n".join(all_reasons),
+            "timestamp": datetime.now().isoformat(),
+            "pair": pair
+        }
+        
+        print(f"\n📊 النتيجة النهائية:")
+        print(f"  - الزوج: {pair}")
+        print(f"  - الإشارة: {signal}")
+        print(f"  - القوة: {strength_percent:.1f}%")
+        print(f"  - المدة: {duration} دقيقة")
+        print(f"  - السعر: {last['close']:.5f}")
+        print(f"{'=' * 50}\n")
+        
+        return result
+
+    except Exception as e:
+        print(f"❌ خطأ في analyze_market: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# =============================================
+# دالة الاختبار
+# =============================================
+if __name__ == "__main__":
+    test_pairs = ["EUR/USD", "GBP/USD", "XAU/USD"]
+    
+    for pair in test_pairs:
+        print(f"\n{'=' * 60}")
+        print(f"🧪 اختبار تحليل الزوج: {pair}")
+        print(f"{'=' * 60}")
+        
+        result = analyze_market(pair)
+        
+        if result:
+            print(f"\n✅ نجح تحليل {pair}")
+            print(f"   الإشارة: {result['signal']}")
+            print(f"   القوة: {result['strength']}%")
+            print(f"   السعر: {result['price']}")
+            if result['signal'] != 'WAIT':
+                print(f"   ✅ صفقة محتملة! المدة: {result['duration']} دقيقة")
+            else:
+                print(f"   ⏳ انتظار - لا توجد إشارة حالياً")
+        else:
+            print(f"\n❌ فشل تحليل {pair}")
