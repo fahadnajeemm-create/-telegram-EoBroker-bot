@@ -3,7 +3,7 @@ import pandas as pd
 import ta
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 try:
@@ -11,6 +11,14 @@ try:
 except ImportError:
     TWELVE_API = os.environ.get('TWELVE_API', '')
     NEWS_API = os.environ.get('NEWS_API', '')
+
+# ✅ تثبيت yfinance إذا لم يكن موجوداً
+try:
+    import yfinance as yf
+except ImportError:
+    print("⚠️ جاري تثبيت yfinance...")
+    os.system('pip install yfinance')
+    import yfinance as yf
 
 def get_price(pair):
     """الحصول على السعر الحالي"""
@@ -23,173 +31,121 @@ def get_price(pair):
         return None
 
 def get_candles(pair, interval="1min", outputsize=300):
-    """جلب بيانات الشموع من API مع محاولات متعددة"""
+    """جلب بيانات الشموع باستخدام Yahoo Finance"""
     try:
-        api_key = TWELVE_API or os.environ.get('TWELVE_API')
-        if not api_key:
-            print("❌ خطأ: مفتاح API غير موجود")
-            return None
+        print(f"🔄 جلب بيانات {pair} من Yahoo Finance...")
         
-        # ✅ تحسين كبير: قائمة موسعة من الرموز المحتملة لجميع الأزواج
-        symbols_to_try = []
-        
-        # الرمز الأصلي
-        symbols_to_try.append(pair)
-        
-        # إزالة الـ slash
-        symbols_to_try.append(pair.replace("/", ""))
-        symbols_to_try.append(pair.replace("/", "").upper())
-        
-        # محاولة صيغ مختلفة
-        if "/" in pair:
-            base, quote = pair.split("/")
-            symbols_to_try.append(base + quote)
-            symbols_to_try.append(base + quote.upper())
-            symbols_to_try.append(base.upper() + quote)
-            symbols_to_try.append(base.upper() + quote.upper())
+        # ✅ خريطة الرموز لـ Yahoo Finance
+        symbol_map = {
+            # العملات الرئيسية
+            "EUR/USD": "EURUSD=X",
+            "GBP/USD": "GBPUSD=X",
+            "USD/JPY": "USDJPY=X",
+            "AUD/USD": "AUDUSD=X",
+            "NZD/USD": "NZDUSD=X",
+            "USD/CAD": "USDCAD=X",
+            "USD/CHF": "USDCHF=X",
             
-            # ✅ إضافة رموز TradingView و OANDA
-            symbols_to_try.append(f"FX_IDC:{base}{quote}")
-            symbols_to_try.append(f"OANDA:{base}_{quote}")
-            symbols_to_try.append(f"{base}{quote}=X")
-        
-        # ✅ معالجة خاصة للذهب والفضة
-        if "XAU" in pair.upper() or "GOLD" in pair.upper():
-            symbols_to_try.extend([
-                "XAUUSD", "XAU/USD", "GOLD", "GC=F", "XAU",
-                "USDXAU", "FX_IDC:XAUUSD", "OANDA:XAUUSD",
-                "BITSTAMP:XAUUSD", "XAUUSD:X"
-            ])
-        
-        if "XAG" in pair.upper() or "SILVER" in pair.upper():
-            symbols_to_try.extend([
-                "XAGUSD", "XAG/USD", "SILVER", "SI=F",
-                "FX_IDC:XAGUSD", "OANDA:XAGUSD"
-            ])
-        
-        # ✅ معالجة خاصة بالعملات الرقمية
-        if "BTC" in pair.upper():
-            symbols_to_try.extend([
-                "BTCUSD", "BTC/USD", "BITSTAMP:BTCUSD", 
-                "COINBASE:BTCUSD", "BINANCE:BTCUSDT"
-            ])
-        
-        if "ETH" in pair.upper():
-            symbols_to_try.extend([
-                "ETHUSD", "ETH/USD", "COINBASE:ETHUSD",
-                "BINANCE:ETHUSDT"
-            ])
-        
-        # ✅ معالجة خاصة بالعملات اليابانية
-        if "JPY" in pair.upper():
-            symbols_to_try.extend([
-                pair.replace("/", ""),
-                pair.replace("/", "").upper(),
-                f"{pair.split('/')[0]}{pair.split('/')[1]}",
-                f"USD{pair.split('/')[1]}",
-                f"EUR{pair.split('/')[1]}"
-            ])
-        
-        # إزالة التكرارات والحفاظ على الترتيب
-        symbols_to_try = list(dict.fromkeys(symbols_to_try))
-        df = None
-        
-        print(f"🔄 سيتم محاولة {len(symbols_to_try)} رمز مختلف...")
-        
-        for symbol in symbols_to_try[:15]:  # حد أقصى 15 محاولة
-            print(f"🔄 محاولة جلب البيانات بالرمز: {symbol} ({interval})")
+            # العملات مع JPY
+            "EUR/JPY": "EURJPY=X",
+            "GBP/JPY": "GBPJPY=X",
+            "AUD/JPY": "AUDJPY=X",
+            "NZD/JPY": "NZDJPY=X",
+            "CHF/JPY": "CHFJPY=X",
+            "CAD/JPY": "CADJPY=X",
             
-            # ✅ تحسين: معالجة خاصة للرموز التي تحتوي على ":"
-            if ":" in symbol or "=" in symbol:
-                # هذه رموز خاصة بـ TradingView أو OANDA
-                encoded_symbol = symbol.replace(":", "%3A")
-                url = f"https://api.twelvedata.com/time_series?symbol={encoded_symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
+            # العملات المتقاطعة
+            "EUR/GBP": "EURGBP=X",
+            "EUR/AUD": "EURAUD=X",
+            "GBP/AUD": "GBPAUD=X",
+            "AUD/NZD": "AUDNZD=X",
+            
+            # الذهب والفضة
+            "XAU/USD": "GC=F",
+            "GOLD": "GC=F",
+            "XAG/USD": "SI=F",
+            "SILVER": "SI=F",
+            
+            # العملات الرقمية
+            "BTC/USD": "BTC-USD",
+            "ETH/USD": "ETH-USD",
+            "XRP/USD": "XRP-USD",
+            "SOL/USD": "SOL-USD"
+        }
+        
+        # ✅ الحصول على الرمز المناسب
+        symbol = symbol_map.get(pair)
+        if not symbol:
+            # محاولة إنشاء رمز من الزوج
+            if "/" in pair:
+                base, quote = pair.split("/")
+                symbol = f"{base}{quote}=X"
             else:
-                url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
-            
+                symbol = pair
+        
+        print(f"📌 الرمز المستخدم: {symbol}")
+        
+        # ✅ تحويل الفاصل الزمني
+        interval_map = {
+            "1min": "1m",
+            "5min": "5m",
+            "15min": "15m",
+            "30min": "30m",
+            "1h": "60m",
+            "4h": "1h",  # Yahoo لا يدعم 4h مباشرة
+            "1d": "1d"
+        }
+        
+        yf_interval = interval_map.get(interval, "1m")
+        
+        # ✅ تحديد الفترة الزمنية
+        if interval in ["1min", "5min"]:
+            period = "7d"  # للفريمات الصغيرة نحتاج 7 أيام
+        else:
+            period = "1mo"  # للفريمات الأكبر شهر
+        
+        print(f"📊 الفاصل: {yf_interval}, الفترة: {period}")
+        
+        # ✅ محاولات متعددة لجلب البيانات
+        for attempt in range(3):
             try:
-                response = requests.get(url, timeout=15)
-                response.raise_for_status()
-                data = response.json()
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(period=period, interval=yf_interval)
                 
-                # ✅ التحقق من وجود بيانات
-                if "values" in data and data["values"] and len(data["values"]) > 0:
-                    print(f"✅ نجح جلب البيانات بالرمز: {symbol} (عدد الشموع: {len(data['values'])})")
+                if df is not None and len(df) > 0:
+                    print(f"✅ تم جلب {len(df)} شمعة")
                     
-                    try:
-                        df = pd.DataFrame(data["values"])
-                        
-                        # ✅ التحقق من الأعمدة المطلوبة
-                        required_cols = ["open", "high", "low", "close"]
-                        missing_cols = [col for col in required_cols if col not in df.columns]
-                        
-                        if missing_cols:
-                            print(f"⚠️ الأعمدة المفقودة: {missing_cols}")
-                            # محاولة إعادة تسمية الأعمدة
-                            col_mapping = {
-                                'price': 'close',
-                                'price_open': 'open',
-                                'price_high': 'high',
-                                'price_low': 'low'
-                            }
-                            for old, new in col_mapping.items():
-                                if old in df.columns and new not in df.columns:
-                                    df[new] = df[old]
-                            continue
-                        
-                        # تحويل الأعمدة إلى numeric
-                        for col in ["open", "high", "low", "close", "volume"]:
-                            if col in df.columns:
-                                df[col] = pd.to_numeric(df[col], errors='coerce')
-                        
-                        # إزالة الصفوف التي تحتوي على NaN في الأعمدة المهمة
-                        df = df.dropna(subset=["open", "high", "low", "close"])
-                        
-                        if len(df) >= 100:
-                            # عكس الترتيب (الأحدث أولاً)
-                            df = df.iloc[::-1].reset_index(drop=True)
-                            print(f"✅ تم جلب {len(df)} شمعة صالحة لـ {pair}")
-                            return df
-                        else:
-                            print(f"⚠️ بيانات غير كافية: {len(df)} شمعة فقط (يحتاج 100)")
-                            df = None
-                            
-                    except Exception as e:
-                        print(f"⚠️ فشل تحويل البيانات للرمز {symbol}: {e}")
-                        df = None
-                        
-                elif "status" in data and data["status"] == "error":
-                    error_msg = data.get('message', 'خطأ غير معروف')
-                    print(f"⚠️ خطأ في API للرمز {symbol}: {error_msg}")
+                    # إعادة تسمية الأعمدة
+                    df = df.rename(columns={
+                        'Open': 'open',
+                        'High': 'high',
+                        'Low': 'low',
+                        'Close': 'close',
+                        'Volume': 'volume'
+                    })
                     
-                    # إذا كان الخطأ بسبب الرمز، جرب الرمز التالي
-                    if "symbol not found" in error_msg.lower():
-                        continue
-                    elif "limit" in error_msg.lower():
-                        print("⚠️ تم الوصول إلى حد الطلبات اليومي")
-                        break
-                        
+                    # إزالة الصفوف الفارغة
+                    df = df.dropna(subset=['open', 'high', 'low', 'close'])
+                    
+                    if len(df) >= 50:  # نحتاج 50 شمعة على الأقل
+                        # ترتيب البيانات (الأحدث أولاً)
+                        df = df.iloc[::-1].reset_index(drop=True)
+                        print(f"✅ نجح جلب {len(df)} شمعة صالحة لـ {pair}")
+                        return df
+                    else:
+                        print(f"⚠️ بيانات غير كافية: {len(df)} شمعة فقط")
                 else:
                     print(f"⚠️ لا توجد بيانات للرمز {symbol}")
-                    
-            except requests.exceptions.Timeout:
-                print(f"⚠️ انتهت المهلة للرمز {symbol}")
-            except requests.exceptions.RequestException as e:
-                print(f"⚠️ خطأ في الطلب للرمز {symbol}: {e}")
+                
+                time.sleep(1)  # انتظار بين المحاولات
+                
             except Exception as e:
-                print(f"⚠️ فشل المحاولة للرمز {symbol}: {e}")
-                continue
+                print(f"⚠️ محاولة {attempt+1} فشلت: {e}")
+                time.sleep(2)
         
-        # ✅ إذا فشل كل شيء، جرب مصدر بيانات بديل
-        print("🔄 محاولة استخدام مصدر بيانات بديل...")
-        df = get_candles_alternative(pair, interval, outputsize)
-        
-        if df is not None and len(df) >= 100:
-            print(f"✅ نجح جلب البيانات من المصدر البديل")
-            return df
-        
-        print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
-        return None
+        # ✅ إذا فشل Yahoo Finance، جرب Twelve Data API
+        print("🔄 محاولة Twelve Data API...")
+        return get_candles_twelvedata(pair, interval, outputsize)
         
     except Exception as e:
         print(f"❌ خطأ في get_candles: {e}")
@@ -197,165 +153,81 @@ def get_candles(pair, interval="1min", outputsize=300):
         traceback.print_exc()
         return None
 
-def get_candles_alternative(pair, interval="1min", outputsize=300):
-    """مصدر بيانات بديل باستخدام Yahoo Finance أو Alpha Vantage"""
+def get_candles_twelvedata(pair, interval="1min", outputsize=300):
+    """جلب بيانات من Twelve Data API"""
     try:
-        # ✅ محاولة استخدام Yahoo Finance عبر yfinance
-        try:
-            import yfinance as yf
-            
-            # ✅ تحسين: خريطة الرموز لـ Yahoo Finance
-            symbol_map = {
-                "XAU/USD": "GC=F",
-                "GOLD": "GC=F",
-                "XAG/USD": "SI=F",
-                "SILVER": "SI=F",
-                "EUR/USD": "EURUSD=X",
-                "GBP/USD": "GBPUSD=X",
-                "USD/JPY": "USDJPY=X",
-                "AUD/USD": "AUDUSD=X",
-                "NZD/USD": "NZDUSD=X",
-                "USD/CAD": "USDCAD=X",
-                "USD/CHF": "USDCHF=X",
-                "EUR/JPY": "EURJPY=X",
-                "GBP/JPY": "GBPJPY=X",
-                "AUD/JPY": "AUDJPY=X",
-                "NZD/JPY": "NZDJPY=X",  # ✅ إضافة NZD/JPY
-                "EUR/GBP": "EURGBP=X",
-                "EUR/AUD": "EURAUD=X",
-                "BTC/USD": "BTC-USD",
-                "ETH/USD": "ETH-USD"
-            }
-            
-            # محاولة العثور على الرمز المناسب
-            symbol = symbol_map.get(pair)
-            if not symbol:
-                # محاولة إنشاء رمز من الزوج
-                if "/" in pair:
-                    base, quote = pair.split("/")
-                    symbol = f"{base}{quote}=X"
-                else:
-                    symbol = pair
-            
-            print(f"🔄 محاولة جلب من Yahoo Finance: {symbol}")
-            
-            # تحويل الفاصل الزمني
-            interval_map = {
-                "1min": "1m",
-                "5min": "5m",
-                "15min": "15m",
-                "30min": "30m",
-                "1h": "60m",
-                "4h": "4h",
-                "1d": "1d"
-            }
-            yf_interval = interval_map.get(interval, "1m")
-            
-            # جلب البيانات مع محاولات متعددة
-            for attempt in range(3):
-                try:
-                    ticker = yf.Ticker(symbol)
-                    df = ticker.history(period="7d", interval=yf_interval)
-                    
-                    if df is not None and len(df) > 0:
-                        # إعادة تسمية الأعمدة
-                        df = df.rename(columns={
-                            'Open': 'open',
-                            'High': 'high',
-                            'Low': 'low',
-                            'Close': 'close',
-                            'Volume': 'volume'
-                        })
-                        
-                        # التحقق من وجود بيانات كافية
-                        if len(df) >= 100:
-                            # ترتيب البيانات (الأحدث أولاً)
-                            df = df.iloc[::-1].reset_index(drop=True)
-                            print(f"✅ تم جلب {len(df)} شمعة من Yahoo Finance")
-                            return df
-                        else:
-                            print(f"⚠️ بيانات Yahoo Finance غير كافية: {len(df)} شمعة")
-                    else:
-                        print(f"⚠️ لا توجد بيانات من Yahoo Finance")
-                    
-                    time.sleep(1)  # انتظار بين المحاولات
-                    
-                except Exception as e:
-                    print(f"⚠️ محاولة {attempt+1} فشلت: {e}")
-                    time.sleep(2)
-                    
-        except ImportError:
-            print("⚠️ yfinance غير مثبت. للتثبيت: pip install yfinance")
-        except Exception as e:
-            print(f"⚠️ خطأ في Yahoo Finance: {e}")
+        api_key = TWELVE_API or os.environ.get('TWELVE_API')
+        if not api_key:
+            print("❌ مفتاح Twelve Data غير موجود")
+            return None
         
-        # ✅ محاولة استخدام Alpha Vantage
-        try:
-            alpha_vantage_key = os.environ.get('ALPHA_VANTAGE_API', '')
-            if alpha_vantage_key and "/" in pair:
-                base, quote = pair.split("/")
-                print(f"🔄 محاولة جلب من Alpha Vantage: {base}/{quote}...")
-                
-                url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={base}&to_symbol={quote}&interval=1min&apikey={alpha_vantage_key}&outputsize=full"
-                
+        # ✅ قائمة الرموز للمحاولة
+        symbols_to_try = [
+            pair,
+            pair.replace("/", ""),
+            pair.replace("/", "").upper(),
+            pair.split("/")[0] + pair.split("/")[1],
+        ]
+        
+        # رموز خاصة
+        if "XAU" in pair.upper() or "GOLD" in pair.upper():
+            symbols_to_try.extend(["XAUUSD", "XAU/USD", "GOLD"])
+        if "XAG" in pair.upper() or "SILVER" in pair.upper():
+            symbols_to_try.extend(["XAGUSD", "XAG/USD", "SILVER"])
+        
+        symbols_to_try = list(dict.fromkeys(symbols_to_try))
+        
+        for symbol in symbols_to_try[:10]:
+            print(f"🔄 محاولة Twelve Data: {symbol}")
+            url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={api_key}"
+            
+            try:
                 response = requests.get(url, timeout=10)
                 data = response.json()
                 
-                if "Time Series FX (1min)" in data:
-                    time_series = data["Time Series FX (1min)"]
-                    rows = []
-                    for timestamp, values in time_series.items():
-                        rows.append({
-                            'open': float(values['1. open']),
-                            'high': float(values['2. high']),
-                            'low': float(values['3. low']),
-                            'close': float(values['4. close'])
-                        })
+                if "values" in data and data["values"] and len(data["values"]) > 0:
+                    df = pd.DataFrame(data["values"])
                     
-                    if rows and len(rows) >= 100:
-                        df = pd.DataFrame(rows)
+                    for col in ["open", "high", "low", "close", "volume"]:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    df = df.dropna(subset=["open", "high", "low", "close"])
+                    
+                    if len(df) >= 50:
                         df = df.iloc[::-1].reset_index(drop=True)
-                        print(f"✅ تم جلب {len(df)} شمعة من Alpha Vantage")
+                        print(f"✅ Twelve Data: {len(df)} شمعة")
                         return df
-                    else:
-                        print(f"⚠️ بيانات Alpha Vantage غير كافية: {len(rows) if rows else 0} شمعة")
                         
-        except Exception as e:
-            print(f"⚠️ خطأ في Alpha Vantage: {e}")
+            except Exception as e:
+                print(f"⚠️ فشل الرمز {symbol}: {e}")
+                continue
         
         return None
         
     except Exception as e:
-        print(f"❌ خطأ في get_candles_alternative: {e}")
+        print(f"❌ خطأ Twelve Data: {e}")
         return None
 
 def check_data_availability(pair):
-    """التحقق من توفر البيانات للزوج المطلوب"""
+    """التحقق من توفر البيانات"""
     try:
         print(f"🔍 جاري التحقق من توفر البيانات لـ {pair}...")
+        df = get_candles(pair, interval="5min", outputsize=50)
         
-        # ✅ تحسين: محاولة أولاً بفاصل زمني أكبر
-        intervals_to_try = ["5min", "15min", "1h"]
-        
-        for interval in intervals_to_try:
-            print(f"🔄 محاولة جلب {interval}...")
-            df = get_candles(pair, interval=interval, outputsize=50)
-            
-            if df is not None and len(df) > 0:
-                print(f"✅ البيانات متوفرة لـ {pair} (باستخدام {interval})")
-                return True
-            else:
-                print(f"⚠️ لا توجد بيانات لـ {interval}")
-        
-        print(f"❌ البيانات غير متوفرة لـ {pair}")
-        return False
+        if df is not None and len(df) > 0:
+            print(f"✅ البيانات متوفرة لـ {pair}")
+            return True
+        else:
+            print(f"❌ البيانات غير متوفرة لـ {pair}")
+            return False
             
     except Exception as e:
-        print(f"❌ خطأ في check_data_availability: {e}")
+        print(f"❌ خطأ: {e}")
         return False
 
 def market_filter(df, last, atr_percent):
-    """المرحلة 1: فلترة السوق - التحقق من ظروف السوق المناسبة"""
+    """المرحلة 1: فلترة السوق"""
     reasons = []
     passed = True
     failed_reasons = []
@@ -535,7 +407,7 @@ def enhanced_price_action_analysis(df, last):
     return pattern, score, max_score, reasons
 
 def enhanced_trend_analysis(df, last, atr):
-    """تحليل الاتجاه المحسن مع EMA100 و EMA200"""
+    """تحليل الاتجاه المحسن"""
     reasons = []
     score = 0
     max_score = 6
@@ -707,11 +579,15 @@ def supertrend_filter(df, last, direction):
 def multi_timeframe_analysis(pair):
     """تحليل متعدد الفريمات"""
     try:
-        df_5m = get_candles(pair, interval="5min", outputsize=300)
-        if df_5m is None or len(df_5m) < 100:
+        # ✅ جلب بيانات 5 دقائق
+        df_5m = get_candles(pair, interval="5min", outputsize=200)
+        if df_5m is None or len(df_5m) < 50:
             print("❌ فشل جلب بيانات 5 دقائق")
             return None, None, None
         
+        print(f"📊 تم جلب {len(df_5m)} شمعة لـ 5 دقائق")
+        
+        # حساب المؤشرات لـ 5 دقائق
         df_5m["ema21"] = ta.trend.EMAIndicator(close=df_5m["close"], window=21).ema_indicator()
         df_5m["ema50"] = ta.trend.EMAIndicator(close=df_5m["close"], window=50).ema_indicator()
         df_5m["ema100"] = ta.trend.EMAIndicator(close=df_5m["close"], window=100).ema_indicator()
@@ -723,11 +599,12 @@ def multi_timeframe_analysis(pair):
         df_5m = df_5m.dropna()
         
         if len(df_5m) == 0:
-            print("❌ بيانات 5 دقائق غير صالحة")
+            print("❌ بيانات 5 دقائق غير صالحة بعد الحسابات")
             return None, None, None
         
         last_5m = df_5m.iloc[-1]
         
+        # تحديد اتجاه 5 دقائق
         is_bullish = (
             last_5m["ema21"] > last_5m["ema50"] and
             last_5m["ema50"] > last_5m["ema100"] and
@@ -751,15 +628,20 @@ def multi_timeframe_analysis(pair):
         
         print(f"📊 اتجاه 5 دقائق: {direction_5m} (ADX: {last_5m['adx']:.1f})")
         
-        df_1m = get_candles(pair, interval="1min", outputsize=300)
-        if df_1m is None or len(df_1m) < 100:
+        # ✅ جلب بيانات 1 دقيقة
+        df_1m = get_candles(pair, interval="1min", outputsize=200)
+        if df_1m is None or len(df_1m) < 50:
             print("❌ فشل جلب بيانات 1 دقيقة")
             return None, None, None
+        
+        print(f"📊 تم جلب {len(df_1m)} شمعة لـ 1 دقيقة")
         
         return df_1m, df_5m, direction_5m
         
     except Exception as e:
         print(f"❌ خطأ في التحليل متعدد الفريمات: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None, None
 
 # =============================================
@@ -772,7 +654,7 @@ def analyze_market(pair):
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # ✅ تحسين: التحقق من توفر البيانات أولاً
+        # ✅ التحقق من توفر البيانات
         if not check_data_availability(pair):
             print(f"❌ البيانات غير متوفرة لـ {pair}")
             return None
@@ -798,8 +680,8 @@ def analyze_market(pair):
             print(f"❌ فشل جلب البيانات لـ {pair}")
             return None
         
-        if len(df) < 100:
-            print(f"❌ بيانات غير كافية لتحليل {pair}")
+        if len(df) < 50:
+            print(f"❌ بيانات غير كافية: {len(df)} شمعة فقط")
             return None
         
         if direction_5m == "NEUTRAL":
@@ -816,7 +698,7 @@ def analyze_market(pair):
         
         print(f"✅ اتجاه 5 دقائق: {direction_5m}")
         
-        print("\n⏳ التحسين 3: التحقق من إغلاق الشمعة...")
+        print("\n⏳ التحقق من إغلاق الشمعة...")
         candle_ready, candle_msg = wait_for_candle_close(df)
         if not candle_ready:
             print(f"❌ {candle_msg}")
@@ -831,7 +713,7 @@ def analyze_market(pair):
             }
         print(f"✅ {candle_msg}")
         
-        print("🔄 حساب المؤشرات الفنية على 1 دقيقة...")
+        print("🔄 حساب المؤشرات الفنية...")
         try:
             df["ema9"] = ta.trend.EMAIndicator(close=df["close"], window=9).ema_indicator()
             df["ema21"] = ta.trend.EMAIndicator(close=df["close"], window=21).ema_indicator()
@@ -1083,13 +965,13 @@ def analyze_market(pair):
 # دالة الاختبار
 # =============================================
 if __name__ == "__main__":
-    # ✅ تحسين: اختبار الأزواج المختلفة
+    # ✅ اختبار الأزواج المختلفة
     test_pairs = [
-        "NZD/JPY",    # ✅ الزوج الذي كان يسبب مشكلة
-        "EUR/USD",    # ✅ زوج رئيسي
-        "GBP/JPY",    # ✅ زوج مع JPY
-        "XAU/USD",    # ✅ الذهب
-        "AUD/JPY"     # ✅ زوج آخر مع JPY
+        "XAU/USD",    # الذهب
+        "EUR/USD",    # يورو دولار
+        "GBP/JPY",    # باوند ين
+        "NZD/JPY",    # نيوزيلندي ين
+        "BTC/USD"     # بتكوين
     ]
     
     for pair in test_pairs:
