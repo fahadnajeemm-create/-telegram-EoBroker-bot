@@ -553,7 +553,7 @@ def multi_timeframe_analysis(pair):
         return None, None, None
 
 # =============================================
-# الدالة الرئيسية - كاملة
+# الدالة الرئيسية - كاملة مع الجزء الناقص
 # =============================================
 def analyze_market(pair):
     """تحليل السوق باستخدام جميع الفلاتر المحسنة"""
@@ -792,10 +792,3 @@ def analyze_market(pair):
         if not st_ok:
             print("❌ SuperTrend غير متوافق")
             return {
-                "signal": "WAIT",
-                "strength": 0,
-                "duration": 0,
-                "price": float(last["close"]),
-                "reason": "SuperTrend غير متوافق مع الاتجاه",
-                "timestamp": datetime.now().isoformat(),
-                "pair
