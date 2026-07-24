@@ -30,6 +30,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print("❌ خطأ: مفتاح API غير موجود")
             return None
         
+        # قائمة بالصيغ الممكنة للرمز
         symbols_to_try = [
             pair,
             pair.replace("/", ""),
@@ -37,6 +38,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             pair.split("/")[0] + pair.split("/")[1],
         ]
         
+        # إزالة التكرارات مع الحفاظ على الترتيب
         symbols_to_try = list(dict.fromkeys(symbols_to_try))
         df = None
         
@@ -70,6 +72,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"❌ فشل جلب البيانات لـ {pair} بجميع الصيغ")
             return None
         
+        # تحويل الأعمدة إلى أرقام
         for col in ["open", "high", "low", "close", "volume"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -80,6 +83,7 @@ def get_candles(pair, interval="1min", outputsize=300):
             print(f"⚠️ عدد الشموع غير كافٍ: {len(df)} (يحتاج 100 على الأقل)")
             return None
         
+        # ترتيب الشموع من الأقدم إلى الأحدث
         df = df.iloc[::-1].reset_index(drop=True)
         print(f"✅ تم جلب {len(df)} شمعة لـ {pair} ({interval})")
         return df
@@ -91,7 +95,7 @@ def get_candles(pair, interval="1min", outputsize=300):
         return None
 
 # =============================================
-# دالة market_filter (كانت مفقودة)
+# دالة market_filter
 # =============================================
 def market_filter(df, last, atr_percent):
     """المرحلة 1: فلترة السوق - التحقق من ظروف السوق المناسبة"""
@@ -372,7 +376,7 @@ def bollinger_width_filter(df, last):
         return True, f"⚠️ خطأ في فحص البولينجر: {e}"
 
 # =============================================
-# التحسين 7: Stochastic مع RSI
+# التحسين 7: Stochastic مع RSI - نسخة مُصحَّحة
 # =============================================
 def stochastic_rsi_confirmation(df, last, direction):
     """تأكيد الزخم باستخدام Stochastic و RSI"""
@@ -381,6 +385,7 @@ def stochastic_rsi_confirmation(df, last, direction):
     max_score = 3
     
     try:
+        # حساب Stochastic بشكل منفصل
         stoch = ta.momentum.StochasticOscillator(
             high=df["high"],
             low=df["low"],
@@ -388,30 +393,33 @@ def stochastic_rsi_confirmation(df, last, direction):
             window=14,
             smooth_window=3
         )
-        df["stoch_k"] = stoch.stoch()
-        df["stoch_d"] = stoch.stoch_signal()
+        stoch_k = stoch.stoch()
+        stoch_d = stoch.stoch_signal()
         
-        last = df.iloc[-1]
+        # استخدام القيم الحالية
+        current_k = stoch_k.iloc[-1]
+        current_d = stoch_d.iloc[-1]
         
         if direction == "BULLISH":
-            if last["stoch_k"] > 20 and last["stoch_k"] < 80 and last["stoch_k"] > last["stoch_d"]:
+            if current_k > 20 and current_k < 80 and current_k > current_d:
                 score += 1.5
-                reasons.append(f"✅ Stochastic صاعد: K={last['stoch_k']:.1f} > D={last['stoch_d']:.1f}")
-            elif last["stoch_k"] < 20:
+                reasons.append(f"✅ Stochastic صاعد: K={current_k:.1f} > D={current_d:.1f}")
+            elif current_k < 20:
                 score += 1
-                reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع: K={last['stoch_k']:.1f}")
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة البيع: K={current_k:.1f}")
             else:
-                reasons.append(f"⚠️ Stochastic غير داعم: K={last['stoch_k']:.1f}")
-        else:
-            if last["stoch_k"] < 80 and last["stoch_k"] > 20 and last["stoch_k"] < last["stoch_d"]:
+                reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
+        else:  # BEARISH
+            if current_k < 80 and current_k > 20 and current_k < current_d:
                 score += 1.5
-                reasons.append(f"✅ Stochastic هابط: K={last['stoch_k']:.1f} < D={last['stoch_d']:.1f}")
-            elif last["stoch_k"] > 80:
+                reasons.append(f"✅ Stochastic هابط: K={current_k:.1f} < D={current_d:.1f}")
+            elif current_k > 80:
                 score += 1
-                reasons.append(f"⚠️ Stochastic في منطقة ذروة الشراء: K={last['stoch_k']:.1f}")
+                reasons.append(f"⚠️ Stochastic في منطقة ذروة الشراء: K={current_k:.1f}")
             else:
-                reasons.append(f"⚠️ Stochastic غير داعم: K={last['stoch_k']:.1f}")
+                reasons.append(f"⚠️ Stochastic غير داعم: K={current_k:.1f}")
         
+        # RSI
         if direction == "BULLISH" and 55 <= last["rsi"] <= 70:
             score += 0.5
             reasons.append(f"✅ RSI متوافق: {last['rsi']:.1f}")
@@ -425,33 +433,35 @@ def stochastic_rsi_confirmation(df, last, direction):
         return 0, max_score, [f"⚠️ خطأ في Stochastic: {e}"]
 
 # =============================================
-# التحسين 8: SuperTrend
+# التحسين 8: SuperTrend - نسخة مُصحَّحة
 # =============================================
 def supertrend_filter(df, last, direction):
     """فلتر SuperTrend للتأكيد على الاتجاه"""
     try:
-        atr = ta.volatility.AverageTrueRange(
+        # حساب ATR
+        atr_indicator = ta.volatility.AverageTrueRange(
             high=df["high"],
             low=df["low"],
             close=df["close"],
             window=10
         )
-        df["atr_supertrend"] = atr.average_true_range()
+        atr_values = atr_indicator.average_true_range()
         
         multiplier = 3
-        df["upper_band"] = (df["high"] + df["low"]) / 2 + multiplier * df["atr_supertrend"]
-        df["lower_band"] = (df["high"] + df["low"]) / 2 - multiplier * df["atr_supertrend"]
+        upper_band = (df["high"] + df["low"]) / 2 + multiplier * atr_values
+        lower_band = (df["high"] + df["low"]) / 2 - multiplier * atr_values
         
-        df["supertrend"] = 1
+        # حساب SuperTrend
+        supertrend = pd.Series(1, index=df.index)
         for i in range(1, len(df)):
-            if df.iloc[i]["close"] > df.iloc[i-1]["upper_band"]:
-                df.iloc[i, df.columns.get_loc("supertrend")] = 1
-            elif df.iloc[i]["close"] < df.iloc[i-1]["lower_band"]:
-                df.iloc[i, df.columns.get_loc("supertrend")] = -1
+            if df.iloc[i]["close"] > upper_band.iloc[i-1]:
+                supertrend.iloc[i] = 1
+            elif df.iloc[i]["close"] < lower_band.iloc[i-1]:
+                supertrend.iloc[i] = -1
             else:
-                df.iloc[i, df.columns.get_loc("supertrend")] = df.iloc[i-1]["supertrend"]
+                supertrend.iloc[i] = supertrend.iloc[i-1]
         
-        last_supertrend = df.iloc[-1]["supertrend"]
+        last_supertrend = supertrend.iloc[-1]
         
         if direction == "BULLISH" and last_supertrend == 1:
             return True, "✅ SuperTrend صاعد"
@@ -759,13 +769,4 @@ def analyze_market(pair):
         print("\n🔍 المرحلة 5: فلتر SuperTrend")
         st_ok, st_msg = supertrend_filter(df, last, direction)
         print(f"  {st_msg}")
-        all_reasons.append(st_msg)
-        
-        if not st_ok:
-            print("❌ SuperTrend غير متوافق")
-            return {
-                "signal": "WAIT",
-                "strength": 0,
-                "duration": 0,
-                "price": float(last["close"]),
-                "ema9": round(last["ema9"],
+        all_reasons
