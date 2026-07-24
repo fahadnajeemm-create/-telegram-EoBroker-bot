@@ -499,7 +499,7 @@ def multi_timeframe_analysis(pair):
         return None, None, None
 
 # =============================================
-# الدالة الرئيسية - الكاملة
+# الدالة الرئيسية
 # =============================================
 def analyze_market(pair):
     """تحليل السوق باستخدام جميع الفلاتر المحسنة"""
@@ -508,7 +508,6 @@ def analyze_market(pair):
         print(f"🔍 جاري تحليل الزوج: {pair}")
         print(f"{'=' * 50}")
         
-        # فلتر الأخبار
         print("\n📰 التحسين 1: فحص الأخبار الاقتصادية...")
         if not check_news_impact(pair):
             print("❌ توجد أخبار مؤثرة - انتظار")
@@ -523,7 +522,6 @@ def analyze_market(pair):
             }
         print("✅ لا توجد أخبار مؤثرة")
         
-        # التحليل متعدد الفريمات
         print("\n📊 التحليل متعدد الفريمات...")
         df, df_5m, direction_5m = multi_timeframe_analysis(pair)
         
@@ -549,7 +547,6 @@ def analyze_market(pair):
         
         print(f"✅ اتجاه 5 دقائق: {direction_5m}")
         
-        # انتظار إغلاق الشمعة
         print("\n⏳ التحسين 3: التحقق من إغلاق الشمعة...")
         candle_ready, candle_msg = wait_for_candle_close(df)
         if not candle_ready:
@@ -614,7 +611,6 @@ def analyze_market(pair):
         all_reasons = []
         failed_reasons = []
         
-        # المرحلة 1: فلترة السوق
         print("\n🔍 المرحلة 1: فلترة السوق")
         
         filter_passed, filter_reasons, failed = market_filter(df, last, atr_percent)
@@ -659,7 +655,6 @@ def analyze_market(pair):
         print("✅ اجتازت فلترة السوق")
         all_reasons.extend(filter_reasons)
         
-        # المرحلة 2: تحديد الاتجاه
         print("\n🔍 المرحلة 2: تحديد الاتجاه (وزن 30%)")
         direction, trend_score, trend_max, trend_reasons = enhanced_trend_analysis(df, last, last["atr"])
         
@@ -709,7 +704,6 @@ def analyze_market(pair):
         
         print(f"✅ الاتجاه: {direction}")
         
-        # المرحلة 3: Price Action
         print("\n🔍 المرحلة 3: تحليل Price Action (وزن 25%)")
         pattern, pa_score, pa_max, pa_reasons = enhanced_price_action_analysis(df, last)
         
@@ -719,7 +713,6 @@ def analyze_market(pair):
         print(f"📊 نقاط Price Action: {pa_score}/{pa_max}")
         all_reasons.extend(pa_reasons)
         
-        # المرحلة 4: Stochastic & RSI
         print("\n🔍 المرحلة 4: تأكيد Stochastic و RSI")
         stoch_score, stoch_max, stoch_reasons = stochastic_rsi_confirmation(df, last, direction)
         
@@ -729,7 +722,6 @@ def analyze_market(pair):
         print(f"📊 نقاط Stochastic: {stoch_score:.1f}/{stoch_max}")
         all_reasons.extend(stoch_reasons)
         
-        # المرحلة 5: SuperTrend
         print("\n🔍 المرحلة 5: فلتر SuperTrend")
         st_ok, st_msg = supertrend_filter(df, last, direction)
         print(f"  {st_msg}")
@@ -747,7 +739,6 @@ def analyze_market(pair):
                 "pair": pair
             }
         
-        # حساب القوة النهائية
         print("\n📊 حساب قوة الإشارة النهائية...")
         
         total_weight = 30 + 25 + 15 + 15 + 15
@@ -780,4 +771,9 @@ def analyze_market(pair):
         
         result = {
             "signal": signal,
-            "
+            "strength": round(strength_percent),
+            "duration": duration,
+            "price": float(last["close"]),
+            "ema9": round(last["ema9"], 5),
+            "ema21": round(last["ema21"], 5),
+            "ema100": round(last["ema100"], 5) if "ema100" in df.columns
